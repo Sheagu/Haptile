@@ -131,9 +131,9 @@ class SingleArmQuestAgent(Agent):
         self.vel_ik_speed_scale = vel_ik_speed_scale
 
         if use_vel_ik:
-            self.translation_scaling_factor = 1.0
+            self.translation_scaling_factor = 0.5
         else:
-            self.translation_scaling_factor = 4.0
+            self.translation_scaling_factor = 1
         
         self.robot_type = robot_type
         self._verbose = verbose

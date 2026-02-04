@@ -4,3 +4,5 @@
 *.pth
 *.zip
 *.DS_Store
+videos/
+shared/
