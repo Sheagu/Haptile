@@ -146,6 +146,8 @@ class Args:
     safe: bool = False
     use_vel_ik: bool = False
 
+    use_camera_node: bool = True # use camera node
+
     num_diffusion_iters_compile: int = 15  # used for compilation only for now
     jit_compile: bool = False  # send the compilation signal to the server (only need to do this once per inference server run).
     use_jit_agent: bool = False  # use the inference server to get actions. The inference_agent_port and the inference_agent_host need to be set to the proper values.
@@ -163,15 +165,21 @@ class Args:
 def main(args):
 
     # Initialize cameras
-    print("Initializing RealSense base camera...")
-    camera_clients = {
-        "base_camera": RealSenseCamera(
-            height=args.realsense_height,
-            width=args.realsense_width,
-            fps=args.realsense_fps,
-            img_size=(args.realsense_width, args.realsense_height),
-        ),
-    }
+    if args.use_camera_node:
+        print("Using camera node...")
+        camera_clients = {
+            "base_camera": ZMQClientCamera(port=args.base_camera_port, host=args.hostname),
+        }
+    else:
+        print("Initializing RealSense base camera...")
+        camera_clients = {
+            "base_camera": RealSenseCamera(
+                height=args.realsense_height,
+                width=args.realsense_width,
+                fps=args.realsense_fps,
+                img_size=(args.realsense_width, args.realsense_height),
+            ),
+        }
     
     # Add tactile cameras if enabled (using OpenCV webcams)
     if args.use_tactile:

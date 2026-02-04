@@ -24,7 +24,7 @@
 # 启动数据采集（带触觉传感器）
 python run_env.py \
   --save-data \
-  --tactile-left-camera-id 22 \
+  --tactile-left-camera-id 16 \
   --tactile-right-camera-id 24
 ```
 

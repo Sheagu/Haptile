@@ -128,7 +128,11 @@ class RobotiqGripper:
             raise ValueError(
                 f"Unexpected response {data} ({data.decode(self.ENCODING)}): does not match '{variable}'"
             )
-        value = int(value_str)
+        try:
+            value = int(value_str)
+        except ValueError:
+            print(f"Warning: could not parse {value_str} as int, returning 0")
+            value = 0
         return value
 
     @staticmethod

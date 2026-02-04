@@ -31,7 +31,11 @@ class ZMQClientCamera(CameraDriver):
         # pack the image_size and send it to the server
         send_message = pickle.dumps(img_size)
         self._socket.send(send_message)
-        state_dict = pickle.loads(self._socket.recv())
+        response = self._socket.recv()
+        # Handle potential empty buffer message from Faster server
+        if response == b"Buffer is empty.":
+            return None, None
+        state_dict = pickle.loads(response)
         return state_dict
 
 
