@@ -33,6 +33,12 @@ class URRobot(Robot):
 
                 self.gripper = RobotiqGripper()
                 self.gripper.connect(hostname=robot_ip, port=63352)
+                
+                # # set speed and force
+                # # default force is 255 (max), default speed is 255 (max)
+                # # range 0-255
+                # self.gripper._set_var(self.gripper.FOR, 100) # set force to 100
+                # self.gripper._set_var(self.gripper.SPE, 100) # set speed to 100
 
         [print("connect") for _ in range(3)]
 
@@ -129,8 +135,9 @@ class URRobot(Robot):
                 pass
             else:
                 gripper_pos = joint_state[-1] * 255
-                # print(f"gripper move command: {gripper_pos}")
-                self.gripper.move(int(gripper_pos), 255, 10)
+                print(f"gripper move command: {gripper_pos}")
+                # self.gripper.move(int(gripper_pos), 255, 10)
+                self.gripper.move(int(gripper_pos), 10, 1)
         self.robot.waitPeriod(t_start)
 
     def command_eef_pose(self, eef_pose: np.ndarray) -> None:

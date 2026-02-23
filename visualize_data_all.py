@@ -12,19 +12,26 @@ from pathlib import Path
 
 # Fix numpy compatibility issue
 import numpy as np
+print("Numpy imported")
 # Handle numpy version compatibility for pickle
 if not hasattr(np, '_core'):
+    # Iterate to allow 'import numpy._core' to work
+    sys.modules['numpy._core'] = np.core
     np._core = np.core
 
 import cv2
+print("CV2 imported")
 import matplotlib
-matplotlib.use('TkAgg')  # Use TkAgg backend for better compatibility
+# matplotlib.use('TkAgg')  # Use TkAgg backend for better compatibility
+print("Matplotlib imported")
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button
+print("Imports done")
 
 
 class DataVisualizer:
     def __init__(self, data_dir: str):
+        print(f"Initializing DataVisualizer with {data_dir}")
         """初始化数据可视化器
         
         Args:
@@ -403,15 +410,48 @@ class DataVisualizer:
             print("No images to export!")
 
 
+def batch_export(data_dir: str, fps: int):
+    """批量导出目录下所有子文件夹的视频"""
+    base_path = Path(data_dir)
+    # 查找所有包含pkl文件的子目录
+    dirs_with_data = set()
+    print(f"Searching for data in {base_path}...")
+    for pkl_file in base_path.rglob("*.pkl"):
+        dirs_with_data.add(pkl_file.parent)
+    
+    data_dirs = sorted(list(dirs_with_data))
+    print(f"Found {len(data_dirs)} directories with data")
+    
+    for i, d in enumerate(data_dirs):
+        print(f"\n[{i+1}/{len(data_dirs)}] Processing {d}")
+        try:
+            video_path = d / f"{d.name}.mp4"
+            if video_path.exists():
+                print(f"Video already exists: {video_path}, skipping...")
+                continue
+                
+            viz = DataVisualizer(str(d))
+            viz.export_video(str(video_path), fps=fps)
+        except Exception as e:
+            print(f"Failed to process {d}: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize TeleUR collected data")
-    parser.add_argument("data_dir", type=str, help="Path to data directory containing pkl files")
+    parser.add_argument("data_dir", default="shared/data/bc_data", type=str, help="Path to data directory containing pkl files")
     parser.add_argument("--export-video", type=str, default=None, 
                        help="Export video to specified path (e.g., output.mp4)")
     parser.add_argument("--fps", type=int, default=10, help="FPS for exported video")
+    parser.add_argument("--batch", action="store_true", help="Batch export videos for all subdirectories")
     
     args = parser.parse_args()
     
+    if args.batch:
+        batch_export(args.data_dir, args.fps)
+        return
+
     # 创建可视化器
     visualizer = DataVisualizer(args.data_dir)
     
@@ -421,7 +461,6 @@ def main():
     else:
         # 交互式可视化
         visualizer.visualize_interactive()
-
 
 if __name__ == "__main__":
     main()

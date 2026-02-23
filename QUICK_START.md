@@ -4,6 +4,8 @@
 
 ### 你的场景：使用触觉传感器（摄像头ID: 22和24）
 
+python launch_nodes.py 
+
 ```bash
 python run_env.py \
   --tactile-left-camera-id 22 \
