@@ -32,6 +32,23 @@ python run_env.py \
 python run_env.py --save-data --tactile-left-camera-id 22 --tactile-right-camera-id 24
 ```
 
+### 1.1 触觉图像自动裁剪并映射到矩形
+```bash
+python run_env.py \
+  --save-data \
+  --tactile-left-camera-id 22 \
+  --tactile-right-camera-id 24
+```
+
+说明：
+- 触觉相机默认强制执行 crop/warp，不需要再传额外参数
+- 程序会优先查找 `robo_test/sensor_config_left.json` 和 `robo_test/sensor_config_right.json`
+- 之后才回退到旧命名：`robo_test/tactile_left_sensor_config.json`、`robo_test/left_sensor_config.json`、`robo_test/sensor_config.json`
+- 左右传感器会分别读取各自配置，不再默认共用同一组点
+- 配置文件默认读取 `points` 字段，点顺序需要与 `marker_tracking.py` 一致：`[左上, 右上, 右下, 左下]`
+- 如果 JSON 里包含 `tactile_left` 或 `tactile_right` 节点，会优先读取对应节点
+- 如果没写 `output_size`，程序会按四点位置自动推断输出矩形尺寸
+
 ### 2. 不使用触觉传感器
 ```bash
 python run_env.py --no-use-tactile --save-data

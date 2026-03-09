@@ -33,6 +33,28 @@ TACTILE_CAM_PORTS = {
     "4": 4,
 }
 
+
+def _resolve_tactile_warp_config(config_path: str, sensor_name: str):
+    """Resolve tactile warp config path with simple project-local defaults."""
+    sensor_suffix = sensor_name.replace("tactile_", "")
+    candidates = [
+        f"robo_test/sensor_config_{sensor_suffix}.json",
+        f"robo_test/{sensor_name}_sensor_config.json",
+        f"robo_test/{sensor_suffix}_sensor_config.json",
+        f"robo_test/sensor_config_{sensor_name}.json",
+        "robo_test/sensor_config.json",
+    ]
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+
+    raise FileNotFoundError(
+        f"No tactile warp config found for {sensor_name}. "
+        "Expected one of: "
+        + ", ".join(candidates)
+    )
+
 def _resolve_camera_id(camera_identifier):
     """Resolve camera identifier to either int device ID or v4l/by-path string.
     
@@ -226,18 +248,29 @@ def main(args):
         # Resolve camera IDs/paths
         left_cam_id = _resolve_camera_id(args.tactile_left_camera_id)
         right_cam_id = _resolve_camera_id(args.tactile_right_camera_id)
+        left_warp_config = _resolve_tactile_warp_config("", "tactile_left")
+        right_warp_config = _resolve_tactile_warp_config("", "tactile_right")
         
         camera_clients["tactile_left"] = OpenCVCamera(
             camera_id=left_cam_id,
             width=args.tactile_width,
-            height=args.tactile_height
+            height=args.tactile_height,
+            perspective_config_path=left_warp_config,
+            perspective_key="tactile_left",
         )
         camera_clients["tactile_right"] = OpenCVCamera(
             camera_id=right_cam_id,
             width=args.tactile_width,
-            height=args.tactile_height
+            height=args.tactile_height,
+            perspective_config_path=right_warp_config,
+            perspective_key="tactile_right",
         )
         print(f"Tactile sensors enabled - Left: {left_cam_id}, Right: {right_cam_id}")
+        print(
+            "Tactile warp config - "
+            f"Left: {left_warp_config or 'disabled'}, "
+            f"Right: {right_warp_config or 'disabled'}"
+        )
     else:
         print("Tactile sensors disabled")
     

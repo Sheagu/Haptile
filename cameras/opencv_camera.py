@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+import json
 import os
 
 import cv2
@@ -55,7 +56,14 @@ def _resolve_v4l_device_path(device_path: str) -> str:
 class OpenCVCamera:
     """Simple OpenCV camera driver for webcams and v4l2 devices."""
 
-    def __init__(self, camera_id, width: int = 640, height: int = 480):
+    def __init__(
+        self,
+        camera_id,
+        width: int = 640,
+        height: int = 480,
+        perspective_config_path: Optional[str] = None,
+        perspective_key: Optional[str] = None,
+    ):
         """Initialize the OpenCV camera.
 
         Args:
@@ -65,8 +73,15 @@ class OpenCVCamera:
                       - For int ID: int like 0, 1, 2, etc.
             width: The width of the camera frame.
             height: The height of the camera frame.
+            perspective_config_path: Optional path to a JSON config with four corner
+                points for perspective rectification.
+            perspective_key: Optional key inside the JSON config, e.g. "tactile_left".
         """
         self.camera_id = camera_id
+        self._perspective_transform = None
+        self._perspective_size = None
+        self._perspective_config_path = perspective_config_path
+        self._perspective_key = perspective_key
         
         # Support v4l2 by-path, regular v4l2 paths, and int device IDs
         try:
@@ -102,8 +117,88 @@ class OpenCVCamera:
         
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        if perspective_config_path:
+            self._load_perspective_transform(perspective_config_path, perspective_key)
+        else:
+            print(f"Perspective warp disabled for {camera_id}")
         
         print(f"Camera {camera_id} initialized: {self.width}x{self.height}")
+
+    def _load_perspective_transform(
+        self, config_path: str, config_key: Optional[str]
+    ) -> None:
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(
+                f"Perspective config not found: {config_path}"
+            )
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        if config_key:
+            entry = config.get(config_key)
+            if entry is None and config_key.startswith("tactile_"):
+                entry = config.get(config_key.replace("tactile_", ""))
+            if entry is None and "points" in config:
+                entry = config
+            if entry is None:
+                raise KeyError(
+                    f"Key '{config_key}' not found in perspective config: {config_path}"
+                )
+        else:
+            entry = config
+
+        if "points" not in entry:
+            raise KeyError(
+                f"Perspective config entry must contain 'points': {config_path}"
+            )
+
+        src_pts = np.array(entry["points"], dtype=np.float32)
+        if src_pts.shape != (4, 2):
+            raise ValueError(
+                f"Perspective config must contain 4 points, got shape {src_pts.shape}"
+            )
+
+        out_width, out_height = self._resolve_output_size(entry, src_pts)
+        dst_pts = np.array(
+            [
+                [0, 0],
+                [out_width, 0],
+                [out_width, out_height],
+                [0, out_height],
+            ],
+            dtype=np.float32,
+        )
+
+        self._perspective_transform = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        self._perspective_size = (int(out_width), int(out_height))
+        print(
+            f"Loaded perspective warp for {self.camera_id} from {config_path}"
+            f" (key={config_key or 'root'} -> {self._perspective_size[0]}x{self._perspective_size[1]})"
+        )
+
+    @staticmethod
+    def _resolve_output_size(entry: dict, src_pts: np.ndarray) -> Tuple[int, int]:
+        if "output_size" in entry:
+            out_width, out_height = entry["output_size"]
+        elif "size" in entry:
+            out_width, out_height = entry["size"]
+        elif "out_width" in entry and "out_height" in entry:
+            out_width = entry["out_width"]
+            out_height = entry["out_height"]
+        else:
+            tl, tr, br, bl = src_pts
+            out_width = int(np.mean([tr[0], br[0]]) - np.mean([tl[0], bl[0]]))
+            out_height = int(np.mean([br[1], bl[1]]) - np.mean([tl[1], tr[1]]))
+
+        out_width = int(round(out_width))
+        out_height = int(round(out_height))
+        if out_width <= 0 or out_height <= 0:
+            raise ValueError(
+                f"Invalid perspective output size: {out_width}x{out_height}"
+            )
+        return out_width, out_height
 
     def read(
         self, img_size: Optional[Tuple[int, int]] = None
@@ -121,6 +216,11 @@ class OpenCVCamera:
         
         if not ret:
             raise RuntimeError(f"Failed to read from camera {self.camera_id}")
+
+        if self._perspective_transform is not None and self._perspective_size is not None:
+            frame = cv2.warpPerspective(
+                frame, self._perspective_transform, self._perspective_size
+            )
         
         # Convert BGR to RGB
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
