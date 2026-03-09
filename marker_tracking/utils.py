@@ -1,8 +1,17 @@
 import os
 import shutil
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
-from skimage import measure
+
+
+@dataclass
+class MarkerRegionProp:
+    label: int
+    area: int
+    bbox: tuple[int, int, int, int]
+    centroid: tuple[float, float]
 
 
 def refresh_dir(dirname:str):
@@ -50,13 +59,28 @@ def find_marker(frame,
     return morph_close
 
 def find_marker_props(marker_img:np.ndarray):
-    label_img = measure.label(marker_img)
-    props = measure.regionprops(label_img)
+    binary_img = (marker_img > 0).astype(np.uint8)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        binary_img, connectivity=8
+    )
+    props = []
+    for label in range(1, num_labels):
+        left = int(stats[label, cv2.CC_STAT_LEFT])
+        top = int(stats[label, cv2.CC_STAT_TOP])
+        width = int(stats[label, cv2.CC_STAT_WIDTH])
+        height = int(stats[label, cv2.CC_STAT_HEIGHT])
+        props.append(
+            MarkerRegionProp(
+                label=label,
+                area=int(stats[label, cv2.CC_STAT_AREA]),
+                bbox=(top, left, top + height, left + width),
+                centroid=(float(centroids[label][1]), float(centroids[label][0])),
+            )
+        )
     return props
 
 def find_marker_centers(marker_img:np.ndarray):
-    label_img = measure.label(marker_img)
-    props = measure.regionprops(label_img)
+    props = find_marker_props(marker_img)
     return [[prop.centroid[1], prop.centroid[0]] for prop in props]
 
 def plot_marker_center(img:np.ndarray, centers:np.ndarray):
@@ -90,4 +114,3 @@ def plot_marker_delta(img:np.ndarray, end_points:np.ndarray, delta_vecs:np.ndarr
         cv2.circle(out_img, (int(end_pt[0]), int(end_pt[1])), 3, pt_color, thickness=-1)
         cv2.arrowedLine(out_img, (int(end_pt[0]), int(end_pt[1])), (int(end_pt[0] + delta[0]*scale), int(end_pt[1] + delta[1]*scale)), arrow_color, thickness=2, line_type=cv2.LINE_AA, tipLength=0.2)
     return out_img
-

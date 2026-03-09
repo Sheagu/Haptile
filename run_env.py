@@ -19,6 +19,11 @@ from camera_node import ZMQClientCamera
 from cameras.opencv_camera import OpenCVCamera
 from cameras.realsense_camera import RealSenseCamera
 from env import RobotEnv
+from marker_tracking.utils import (
+    find_marker,
+    find_marker_centers,
+    plot_marker_delta,
+)
 from robot_node import ZMQClientRobot
 
 trigger_state = {"r": False,"l":False}
@@ -124,6 +129,125 @@ def print_color(*args, color=None, attrs=(), **kwargs):
     print(*args, **kwargs)
 
 
+@dataclass
+class MarkerTrackingState:
+    name: str
+    ref_gray: np.ndarray | None = None
+    ref_points: np.ndarray | None = None
+    display_window: str | None = None
+
+
+def _build_marker_tracking_params(args: "Args") -> dict:
+    return {
+        "morphop_kernel": cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (args.marker_morph_open_size, args.marker_morph_open_size)
+        ),
+        "morphclose_kernel": cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE,
+            (args.marker_morph_close_size, args.marker_morph_close_size),
+        ),
+        "dilate_kernel": cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (args.marker_dilate_size, args.marker_dilate_size)
+        ),
+        "mask_range": tuple(args.marker_mask_range),
+        "min_value": args.marker_value_threshold,
+        "morphop_iter": args.marker_morph_open_iter,
+        "morphclose_iter": args.marker_morph_close_iter,
+        "dilate_iter": args.marker_dilate_iter,
+    }
+
+
+def _init_marker_tracking_state(
+    sensor_name: str,
+    frame: np.ndarray | None,
+    marker_tracking_params: dict,
+    create_window: bool,
+) -> MarkerTrackingState | None:
+    if frame is None:
+        return None
+
+    marker_mask = find_marker(frame, **marker_tracking_params)
+    centers = find_marker_centers(marker_mask)
+    if not centers:
+        print_color(
+            f"[marker_tracking] {sensor_name}: no markers found in initial frame",
+            color="yellow",
+        )
+        return MarkerTrackingState(name=sensor_name)
+
+    state = MarkerTrackingState(
+        name=sensor_name,
+        ref_gray=cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY),
+        ref_points=np.array(centers, dtype=np.float32).reshape(-1, 1, 2),
+        display_window=f"{sensor_name}_marker_tracking",
+    )
+    if create_window:
+        cv2.namedWindow(state.display_window, cv2.WINDOW_NORMAL)
+    print(
+        f"[marker_tracking] {sensor_name}: initialized with {len(centers)} markers"
+    )
+    return state
+
+
+def _update_marker_tracking(
+    sensor_name: str,
+    frame: np.ndarray | None,
+    state: MarkerTrackingState | None,
+    marker_tracking_params: dict,
+    lk_params: dict,
+    reset_on_loss: bool,
+    arrow_scale: float,
+) -> tuple[MarkerTrackingState | None, np.ndarray | None]:
+    if frame is None:
+        return state, None
+
+    if state is None or state.ref_points is None or state.ref_gray is None:
+        state = _init_marker_tracking_state(
+            sensor_name=sensor_name,
+            frame=frame,
+            marker_tracking_params=marker_tracking_params,
+            create_window=False,
+        )
+        if state is None or state.ref_points is None or state.ref_gray is None:
+            return state, None
+
+    track_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    next_points, status, _ = cv2.calcOpticalFlowPyrLK(
+        state.ref_gray,
+        track_gray,
+        state.ref_points,
+        None,
+        **lk_params,
+    )
+    if next_points is None or status is None:
+        if reset_on_loss:
+            return _init_marker_tracking_state(
+                state.name, frame, marker_tracking_params, create_window=False
+            ), None
+        return state, None
+
+    status = status.reshape(-1).astype(bool)
+    if not np.any(status):
+        if reset_on_loss:
+            return _init_marker_tracking_state(
+                state.name, frame, marker_tracking_params, create_window=False
+            ), None
+        return state, None
+
+    ref_points = state.ref_points.reshape(-1, 2)[status]
+    tracked_points = next_points.reshape(-1, 2)[status]
+    deltas = tracked_points - ref_points
+    overlay = plot_marker_delta(
+        frame,
+        tracked_points,
+        deltas,
+        scale=arrow_scale,
+        arrow_color=(255, 0, 0),
+    )
+    state.ref_points = ref_points.reshape(-1, 1, 2).astype(np.float32)
+    return state, overlay
+
+
 def save_frame(
     folder: Path,
     timestamp: datetime.datetime,
@@ -202,6 +326,20 @@ class Args:
     realsense_fps: int = 30  # RealSense camera FPS
     tactile_width: int = 640  # Tactile camera resolution width
     tactile_height: int = 480  # Tactile camera resolution height
+    enable_marker_tracking: bool = True
+    marker_tracking_show_view: bool = True
+    marker_tracking_reset_on_loss: bool = True
+    marker_flow_win_size: tuple[int, int] = (15, 15)
+    marker_flow_max_level: int = 2
+    marker_arrow_scale: float = 6.0
+    marker_mask_range: tuple[int, int] = (145, 255)
+    marker_value_threshold: int = 90
+    marker_morph_open_size: int = 5
+    marker_morph_open_iter: int = 1
+    marker_morph_close_size: int = 5
+    marker_morph_close_iter: int = 1
+    marker_dilate_size: int = 3
+    marker_dilate_iter: int = 0
     data_dir: str = "./shared/data/bc_data"
     verbose: bool = False
     safe: bool = False
@@ -224,6 +362,16 @@ class Args:
 
 
 def main(args):
+    marker_tracking_params = _build_marker_tracking_params(args)
+    lk_params = {
+        "winSize": tuple(args.marker_flow_win_size),
+        "maxLevel": args.marker_flow_max_level,
+        "criteria": (
+            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+            10,
+            0.03,
+        ),
+    }
 
     # Initialize cameras
     if args.use_camera_node:
@@ -327,6 +475,19 @@ def main(args):
         env.step(jnt)
 
     obs = env.get_obs()
+    marker_tracking_states: dict[str, MarkerTrackingState | None] = {}
+    if args.enable_marker_tracking and args.use_tactile:
+        for sensor_name in ("tactile_left", "tactile_right"):
+            obs_key = f"{sensor_name}_rgb"
+            marker_tracking_states[sensor_name] = _init_marker_tracking_state(
+                sensor_name=sensor_name,
+                frame=obs.get(obs_key),
+                marker_tracking_params=marker_tracking_params,
+                create_window=args.marker_tracking_show_view,
+            )
+    else:
+        marker_tracking_states = {}
+
     # if args.jit_compile:
     #     agent.compile_inference(
     #         obs, num_diffusion_iters=args.num_diffusion_iters_compile
@@ -407,6 +568,33 @@ def main(args):
             # else:
             action = agent.act(obs)
             dt = datetime.datetime.now()
+
+            if args.enable_marker_tracking and args.use_tactile:
+                for sensor_name in ("tactile_left", "tactile_right"):
+                    obs_key = f"{sensor_name}_rgb"
+                    tracking_key = f"{sensor_name}_marker_tracking"
+                    state, overlay = _update_marker_tracking(
+                        sensor_name=sensor_name,
+                        frame=obs.get(obs_key),
+                        state=marker_tracking_states.get(sensor_name),
+                        marker_tracking_params=marker_tracking_params,
+                        lk_params=lk_params,
+                        reset_on_loss=args.marker_tracking_reset_on_loss,
+                        arrow_scale=args.marker_arrow_scale,
+                    )
+                    marker_tracking_states[sensor_name] = state
+                    if overlay is not None:
+                        obs[tracking_key] = overlay
+                        if (
+                            args.marker_tracking_show_view
+                            and state is not None
+                            and state.display_window is not None
+                        ):
+                            cv2.imshow(
+                                state.display_window,
+                                cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
+                            )
+                            cv2.waitKey(1)
 
             if args.save_data:
                 if is_first_frame:
