@@ -40,9 +40,21 @@ class DataVisualizer:
         
         print(f"Found {len(self.pkl_files)} frames in {data_dir}")
         
-        # 加载第一帧以获取信息
-        with open(self.pkl_files[0], "rb") as f:
-            first_frame = pickle.load(f)
+        # 加载第一个有效的帧以获取信息
+        first_frame = None
+        for i, pkl_file in enumerate(self.pkl_files):
+            try:
+                with open(pkl_file, "rb") as f:
+                    first_frame = pickle.load(f)
+                break  # Found first valid frame
+            except (EOFError, pickle.UnpicklingError) as e:
+                if i == 0:
+                    print(f"Warning: First frame {pkl_file} is corrupted, trying next frames...")
+                continue
+        
+        if first_frame is None:
+            print("Error: No valid frames found in the dataset!")
+            sys.exit(1)
         
         # 检测可用的数据类型
         self.has_base_rgb = "base_camera_rgb" in first_frame
@@ -77,7 +89,11 @@ class DataVisualizer:
     def load_frame(self, frame_idx: int):
         """加载指定帧的数据"""
         with open(self.pkl_files[frame_idx], "rb") as f:
-            return pickle.load(f)
+            try:
+                return pickle.load(f)
+            except EOFError as e:
+                print(f"Warning: Corrupted pickle file {self.pkl_files[frame_idx]}")
+                raise
     
     def normalize_depth(self, depth):
         """归一化深度图用于显示"""
@@ -135,13 +151,13 @@ class DataVisualizer:
                 plot_idx += 1
         
         # Base camera Depth
-        if self.has_base_depth:
-            for i in range(self.num_base_cameras):
-                ax = plt.subplot(rows, cols, plot_idx + 1)
-                axes.append(ax)
-                ax.set_title(f"Base Camera {i} - Depth")
-                ax.axis('off')
-                plot_idx += 1
+        # if self.has_base_depth:
+        #     for i in range(self.num_base_cameras):
+        #         ax = plt.subplot(rows, cols, plot_idx + 1)
+        #         axes.append(ax)
+        #         ax.set_title(f"Base Camera {i} - Depth")
+        #         ax.axis('off')
+        #         plot_idx += 1
         
         # Tactile sensors
         if self.has_tactile_left:
@@ -330,16 +346,33 @@ class DataVisualizer:
         """
         print(f"Exporting video to {output_path}...")
         
-        # 加载第一帧获取尺寸
-        first_data = self.load_frame(0)
+        # 加载第一个有效的帧获取尺寸信息
+        first_data = None
+        for i in range(len(self.pkl_files)):
+            try:
+                first_data = self.load_frame(i)
+                if first_data is not None:
+                    break
+            except (EOFError, pickle.UnpicklingError):
+                continue
+        
+        if first_data is None:
+            print("Error: No valid frames found to export!")
+            return
         
         # 收集所有图像
         images = []
+        corrupted_frames = []
         for i, pkl_file in enumerate(self.pkl_files):
             if i % 10 == 0:
                 print(f"Processing frame {i}/{len(self.pkl_files)}")
             
-            data = self.load_frame(i)
+            try:
+                data = self.load_frame(i)
+            except (EOFError, pickle.UnpicklingError) as e:
+                print(f"Skipping corrupted frame {i}: {pkl_file}")
+                corrupted_frames.append((i, pkl_file))
+                continue
             
             # 创建可视化图像
             img_list = []
@@ -388,6 +421,12 @@ class DataVisualizer:
                 
                 images.append(combined)
         
+        if corrupted_frames:
+            print(f"\nWarning: {len(corrupted_frames)} corrupted frames were skipped:")
+            for frame_idx, file_path in corrupted_frames[:10]:  # Show first 10
+                print(f"  Frame {frame_idx}: {file_path}")
+            if len(corrupted_frames) > 10:
+                print(f"  ... and {len(corrupted_frames) - 10} more")
         # 写入视频
         if len(images) > 0:
             height, width = images[0].shape[:2]

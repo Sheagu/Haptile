@@ -23,6 +23,45 @@ from robot_node import ZMQClientRobot
 
 trigger_state = {"r": False,"l":False}
 
+# Mapping for tactile camera names to v4l2 by-path ports (persistent device paths)
+# Change these paths to match your actual v4l/by-path devices
+TACTILE_CAM_PORTS = {
+    "left": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:1.3.4:1.0-video-index0",
+    "right": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:2:1.0-video-index0",  # Update with your actual by-path
+    # Fallback to int IDs if needed
+    "2": 2,
+    "4": 4,
+}
+
+def _resolve_camera_id(camera_identifier):
+    """Resolve camera identifier to either int device ID or v4l/by-path string.
+    
+    Args:
+        camera_identifier: Either an int, or a string that could be:
+            - A v4l/by-path path: "/dev/v4l/by-path/pci-..."
+            - An int string: "2", "4", "22", etc.
+            - A preset name: "left", "right"
+    
+    Returns:
+        Either an int (for device ID) or str (for v4l/by-path path)
+    """
+    if isinstance(camera_identifier, int):
+        return camera_identifier
+    
+    if isinstance(camera_identifier, str):
+        # Check if it's a preset name
+        if camera_identifier in TACTILE_CAM_PORTS:
+            return TACTILE_CAM_PORTS[camera_identifier]
+        
+        # Check if it's a v4l/by-path path
+        if camera_identifier.startswith("/dev/v4l/by-path/"):
+            return camera_identifier
+        
+        # Check if it's a numeric string (convert to int)
+        if camera_identifier.isdigit():
+            return int(camera_identifier)
+    
+    raise ValueError(f"Invalid camera identifier: {camera_identifier}")
 
 def listen_key(key):
     global trigger_state
@@ -107,7 +146,7 @@ def save_frame(
                 tactile_left_bgr = cv2.cvtColor(tactile_left, cv2.COLOR_RGB2BGR)
                 fn_left = str(recorded_file)[:-4] + f"-tactile_left.png"
                 cv2.imwrite(fn_left, tactile_left_bgr)
-        
+
         # Save right tactile sensor image
         if "tactile_right_rgb" in obs:
             tactile_right = obs["tactile_right_rgb"]
@@ -124,8 +163,8 @@ class Args:
     robot_port: int = 6000
     wrist_camera_port: int = 5001
     base_camera_port: int = 5000
-    tactile_left_camera_id: int = 2  # OpenCV camera ID for left tactile
-    tactile_right_camera_id: int = 4  # OpenCV camera ID for right tactile
+    tactile_left_camera_id: str = "left"  # v4l/by-path or int ID (supports: "left", "2", "/dev/v4l/by-path/...")
+    tactile_right_camera_id: str = "right"  # v4l/by-path or int ID (supports: "right", "4", "/dev/v4l/by-path/...")
     hostname: str = "127.0.0.1"
     hz: int = 50
     show_camera_view: bool = True
@@ -184,17 +223,21 @@ def main(args):
     # Add tactile cameras if enabled (using OpenCV webcams)
     if args.use_tactile:
         print("Initializing tactile sensors with OpenCV...")
+        # Resolve camera IDs/paths
+        left_cam_id = _resolve_camera_id(args.tactile_left_camera_id)
+        right_cam_id = _resolve_camera_id(args.tactile_right_camera_id)
+        
         camera_clients["tactile_left"] = OpenCVCamera(
-            camera_id=args.tactile_left_camera_id,
+            camera_id=left_cam_id,
             width=args.tactile_width,
             height=args.tactile_height
         )
         camera_clients["tactile_right"] = OpenCVCamera(
-            camera_id=args.tactile_right_camera_id,
+            camera_id=right_cam_id,
             width=args.tactile_width,
             height=args.tactile_height
         )
-        print("Tactile sensors enabled")
+        print(f"Tactile sensors enabled - Left: {left_cam_id}, Right: {right_cam_id}")
     else:
         print("Tactile sensors disabled")
     
@@ -230,7 +273,8 @@ def main(args):
     if args.agent == "quest":
         # using grippers
         #To-do   90
-        reset_joints = np.deg2rad([-82, -102, -70, -98, 86, 90, 0])
+        # reset_joints = np.deg2rad([-82, -102, -70, -98, 86, 90, 0])
+        reset_joints = np.deg2rad([-87, -88, -112, -67, 90, 0, 0])
     # else:
     #     # using Ability hands
     #     arm_joints_left = [-80, -140, -80, -85, -10, 80]

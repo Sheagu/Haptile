@@ -1,6 +1,9 @@
 # 快速使用指南
 
 ## ✅ 正确的命令行用法
+```commandline
+python launch_nodes.py
+```
 
 ### 你的场景：使用触觉传感器（摄像头ID: 22和24）
 
@@ -8,10 +11,13 @@ python launch_nodes.py
 
 ```bash
 python run_env.py \
-  --tactile-left-camera-id 22 \
-  --tactile-right-camera-id 24 \
+  --tactile-left-camera-id 2 \
+  --tactile-right-camera-id 12 \
   --save-data
 ```
+python run_env.py \
+  --tactile-left-camera-id 2 \
+  --save-data
 
 注意：
 - ✅ 使用 `--save-data` (连字符分隔)

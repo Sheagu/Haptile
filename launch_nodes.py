@@ -21,10 +21,17 @@ class Args:
     img_size: Optional[Tuple[int, int]] = None  # (320, 240)
 
 
-def launch_server_cameras(port: int, camera_id: List[str], args: Args):
-    from cameras.realsense_camera import RealSenseCamera
+def launch_server_cameras(port: int, camera_ports: List[str], args: Args):
+    from cameras.opencv_camera import OpenCVCamera
 
-    camera = RealSenseCamera(camera_id, img_size=args.img_size)
+    # Support multiple cameras
+    if len(camera_ports) == 1:
+        print(camera_ports)
+        camera = OpenCVCamera(camera_ports[0], width=640, height=480)
+    else:
+        # For multiple cameras, use RealSense if all are serial numbers, otherwise use OpenCV
+        from cameras.realsense_camera import RealSenseCamera
+        camera = RealSenseCamera(camera_ports, img_size=args.img_size)
 
     if args.faster:
         server = ZMQServerCameraFaster(camera, port=port, host=args.hostname)
@@ -71,16 +78,24 @@ def launch_robot_server(port: int, args: Args):
     server.serve()
 
 
-CAM_IDS = {
-    "435": "000000000000",
+# Mapping camera names to v4l2 by-path ports (persistent device paths)
+# Use /dev/v4l/by-path/ instead of /dev/video* for stable device identification
+CAM_PORTS = {
+    "435": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:3:1.3-video-index0",  # Update with your actual by-path
+    # "rgb": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:3:1.0-video-index1",
+    # "depth": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:3:1.0-video-index2",
 }
 
+# CAM_PORTS = {
+#     "435": "000000000000"
+# }
+
 def create_camera_server(args: Args) -> List[Process]:
-    ids = [CAM_IDS[name] for name in args.cam_names]
+    ports = [CAM_PORTS[name] for name in args.cam_names]
     camera_port = 5000
     # start a single python process for all cameras
-    print(f"Launching cameras {ids} on port {camera_port}")
-    server = Process(target=launch_server_cameras, args=(camera_port, ids, args))
+    print(f"Launching cameras {ports} on port {camera_port}")
+    server = Process(target=launch_server_cameras, args=(camera_port, ports, args))
     return server
 
 def main(args):

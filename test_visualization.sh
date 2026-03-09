@@ -9,4 +9,4 @@ python analyze_data.py ./shared/data/bc_data/$(ls -t ./shared/data/bc_data/ | he
 
 # 4. 如果满意，可以导出视频
 python visualize_data.py ./shared/data/bc_data/YOUR_FOLDER --export-video demo.mp4 --fps 10
-python visualize_data.py ./shared/data/bc_data/0127_195435 --export-video demo2.mp4 --fps 10
+python visualize_data.py ./shared/data/bc_data/0224_184609 --export-video demo_test.mp4 --fps 10

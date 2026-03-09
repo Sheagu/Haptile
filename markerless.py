@@ -83,10 +83,10 @@ class ImageSee():
                 print("Saved images:{}".format(num_saved_images))
                 num_saved_images += 1
             if key == 27: # esc
-                break 
+                break
 
 if __name__ == "__main__":
-    video = cv2.VideoCapture(16)
+    video = cv2.VideoCapture(0)  # camera port
     ImSv = ImageSee(video)
     ImSv.ref_capture()
     ImSv.save_images()
