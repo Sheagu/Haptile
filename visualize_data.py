@@ -61,18 +61,26 @@ class DataVisualizer:
         self.has_base_depth = "base_camera_depth" in first_frame
         self.has_tactile_left = "tactile_left_rgb" in first_frame
         self.has_tactile_right = "tactile_right_rgb" in first_frame
+        self.has_tactile_left_marker_tracking = "tactile_left_marker_tracking" in first_frame
+        self.has_tactile_right_marker_tracking = "tactile_right_marker_tracking" in first_frame
         self.has_joint_positions = "joint_positions" in first_frame
         self.has_ee_pose = "ee_pos_quat" in first_frame
         self.has_control = "control" in first_frame
+        self.has_gripper_position = (
+            "gripper_position" in first_frame or "grip_position" in first_frame
+        )
         
         print("\n=== Data Available ===")
         print(f"Base Camera RGB: {self.has_base_rgb}")
         print(f"Base Camera Depth: {self.has_base_depth}")
         print(f"Tactile Left: {self.has_tactile_left}")
         print(f"Tactile Right: {self.has_tactile_right}")
+        print(f"Tactile Left Marker Tracking: {self.has_tactile_left_marker_tracking}")
+        print(f"Tactile Right Marker Tracking: {self.has_tactile_right_marker_tracking}")
         print(f"Joint Positions: {self.has_joint_positions}")
         print(f"End-Effector Pose: {self.has_ee_pose}")
         print(f"Control Commands: {self.has_control}")
+        print(f"Gripper Position: {self.has_gripper_position}")
         
         if self.has_base_rgb:
             rgb_shape = first_frame["base_camera_rgb"].shape
@@ -112,6 +120,253 @@ class DataVisualizer:
         depth_normalized = np.clip(depth_normalized, min_val, max_val)
         depth_normalized = (depth_normalized - min_val) / (max_val - min_val + 1e-6)
         return (depth_normalized * 255).astype(np.uint8)
+
+    def _to_rgb_image(self, image):
+        """Convert stored image-like data to an RGB uint8 image."""
+        if image is None:
+            return None
+
+        arr = np.asarray(image)
+        if arr.ndim == 4 and arr.shape[0] == 1:
+            arr = arr[0]
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        if arr.ndim != 3:
+            return None
+        if arr.shape[-1] == 1:
+            arr = np.repeat(arr, 3, axis=-1)
+        if arr.shape[-1] > 3:
+            arr = arr[..., :3]
+        if arr.dtype != np.uint8:
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+        return arr
+
+    def _resize_panel(self, image, panel_size):
+        panel_w, panel_h = panel_size
+        panel = np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
+        if image is None:
+            return panel
+
+        img_h, img_w = image.shape[:2]
+        if img_h == 0 or img_w == 0:
+            return panel
+
+        scale = min(panel_w / img_w, panel_h / img_h)
+        new_w = max(1, int(img_w * scale))
+        new_h = max(1, int(img_h * scale))
+        resized = cv2.resize(image, (new_w, new_h))
+        x0 = (panel_w - new_w) // 2
+        y0 = (panel_h - new_h) // 2
+        panel[y0:y0 + new_h, x0:x0 + new_w] = resized
+        return panel
+
+    def _annotate_panel(self, panel, title):
+        annotated = panel.copy()
+        cv2.rectangle(annotated, (0, 0), (annotated.shape[1], 34), (24, 24, 24), -1)
+        cv2.putText(
+            annotated,
+            title,
+            (12, 24),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return annotated
+
+    def _make_text_panel(self, title, message, panel_size):
+        panel_w, panel_h = panel_size
+        panel = np.full((panel_h, panel_w, 3), 18, dtype=np.uint8)
+        panel = self._annotate_panel(panel, title)
+        cv2.putText(
+            panel,
+            message,
+            (12, panel_h // 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (180, 180, 180),
+            2,
+            cv2.LINE_AA,
+        )
+        return panel
+
+    def _extract_gripper_value(self, data):
+        for key in ("gripper_position", "grip_position"):
+            if key not in data:
+                continue
+            value = np.asarray(data[key], dtype=np.float32).reshape(-1)
+            if value.size > 0:
+                return float(value[0])
+        return None
+
+    def _precompute_gripper_series(self):
+        values = []
+        for i in range(len(self.pkl_files)):
+            try:
+                data = self.load_frame(i)
+            except (EOFError, pickle.UnpicklingError):
+                values.append(np.nan)
+                continue
+            value = self._extract_gripper_value(data)
+            values.append(np.nan if value is None else value)
+
+        series = np.asarray(values, dtype=np.float32)
+        valid = series[~np.isnan(series)]
+        if valid.size == 0:
+            return series, 0.0, 1.0
+
+        y_min = float(valid.min())
+        y_max = float(valid.max())
+        if abs(y_max - y_min) < 1e-6:
+            y_min -= 0.5
+            y_max += 0.5
+        else:
+            padding = 0.1 * (y_max - y_min)
+            y_min -= padding
+            y_max += padding
+        return series, y_min, y_max
+
+    def _draw_gripper_plot(self, frame_idx, grip_series, y_min, y_max, panel_size):
+        panel_w, panel_h = panel_size
+        panel = np.full((panel_h, panel_w, 3), 245, dtype=np.uint8)
+        panel = self._annotate_panel(panel, "Grip Position")
+
+        if np.isnan(grip_series).all():
+            cv2.putText(
+                panel,
+                "No gripper_position data",
+                (12, panel_h // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (80, 80, 80),
+                2,
+                cv2.LINE_AA,
+            )
+            return panel
+
+        left = 55
+        right = 20
+        top = 55
+        bottom = 45
+        plot_w = max(1, panel_w - left - right)
+        plot_h = max(1, panel_h - top - bottom)
+
+        cv2.rectangle(panel, (left, top), (left + plot_w, top + plot_h), (215, 215, 215), 1)
+
+        for frac in (0.0, 0.5, 1.0):
+            y_val = y_max - frac * (y_max - y_min)
+            y = top + int(frac * plot_h)
+            cv2.line(panel, (left, y), (left + plot_w, y), (225, 225, 225), 1)
+            cv2.putText(
+                panel,
+                f"{y_val:.3f}",
+                (6, y + 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (90, 90, 90),
+                1,
+                cv2.LINE_AA,
+            )
+
+        valid_points = []
+        total_frames = max(1, len(grip_series) - 1)
+        denom = max(1e-6, y_max - y_min)
+        for idx in range(frame_idx + 1):
+            value = grip_series[idx]
+            if np.isnan(value):
+                continue
+            x = left + int((idx / total_frames) * plot_w)
+            y = top + int(((y_max - value) / denom) * plot_h)
+            valid_points.append((x, y))
+
+        if len(valid_points) >= 2:
+            cv2.polylines(
+                panel,
+                [np.array(valid_points, dtype=np.int32)],
+                False,
+                (60, 120, 255),
+                2,
+                cv2.LINE_AA,
+            )
+        elif len(valid_points) == 1:
+            cv2.circle(panel, valid_points[0], 3, (60, 120, 255), -1, cv2.LINE_AA)
+
+        current_value = grip_series[frame_idx]
+        if not np.isnan(current_value):
+            current_x, current_y = valid_points[-1]
+            cv2.circle(panel, (current_x, current_y), 5, (0, 0, 255), -1, cv2.LINE_AA)
+            cv2.putText(
+                panel,
+                f"Current: {current_value:.4f}",
+                (left, panel_h - 14),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (40, 40, 40),
+                2,
+                cv2.LINE_AA,
+            )
+
+        return panel
+
+    def _build_export_frame(self, data, frame_idx, panel_size, grip_series, y_min, y_max):
+        panels = []
+        visual_rgb = None
+        if self.has_base_rgb:
+            base_rgb = data.get("base_camera_rgb")
+            if base_rgb is not None:
+                base_rgb = np.asarray(base_rgb)
+                if base_rgb.ndim == 4 and base_rgb.shape[0] >= 1:
+                    visual_rgb = base_rgb[0]
+                else:
+                    visual_rgb = base_rgb
+
+        panel_specs = [
+            ("Visual RGB", visual_rgb),
+            ("Tactile Left RGB", data.get("tactile_left_rgb") if self.has_tactile_left else None),
+            ("Tactile Right RGB", data.get("tactile_right_rgb") if self.has_tactile_right else None),
+            (
+                "Tactile Left Marker",
+                data.get("tactile_left_marker_tracking") if self.has_tactile_left_marker_tracking else None,
+            ),
+            (
+                "Tactile Right Marker",
+                data.get("tactile_right_marker_tracking") if self.has_tactile_right_marker_tracking else None,
+            ),
+        ]
+
+        for title, image in panel_specs:
+            rgb_image = self._to_rgb_image(image)
+            if rgb_image is None:
+                panels.append(self._make_text_panel(title, "Not available", panel_size))
+            else:
+                panels.append(self._annotate_panel(self._resize_panel(rgb_image, panel_size), title))
+
+        panels.append(self._draw_gripper_plot(frame_idx, grip_series, y_min, y_max, panel_size))
+
+        top_row = np.concatenate(panels[:3], axis=1)
+        bottom_row = np.concatenate(panels[3:6], axis=1)
+        combined = np.concatenate([top_row, bottom_row], axis=0)
+
+        footer = f"Frame: {frame_idx}/{len(self.pkl_files) - 1} | File: {os.path.basename(self.pkl_files[frame_idx])}"
+        cv2.rectangle(
+            combined,
+            (0, combined.shape[0] - 34),
+            (combined.shape[1], combined.shape[0]),
+            (24, 24, 24),
+            -1,
+        )
+        cv2.putText(
+            combined,
+            footer,
+            (12, combined.shape[0] - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
     
     def visualize_interactive(self):
         """交互式可视化"""
@@ -360,9 +615,12 @@ class DataVisualizer:
             print("Error: No valid frames found to export!")
             return
         
+        grip_series, y_min, y_max = self._precompute_gripper_series()
+
         # 收集所有图像
         images = []
         corrupted_frames = []
+        panel_size = (420, 320)
         for i, pkl_file in enumerate(self.pkl_files):
             if i % 10 == 0:
                 print(f"Processing frame {i}/{len(self.pkl_files)}")
@@ -374,52 +632,15 @@ class DataVisualizer:
                 corrupted_frames.append((i, pkl_file))
                 continue
             
-            # 创建可视化图像
-            img_list = []
-            
-            # Base RGB
-            if self.has_base_rgb:
-                rgb = data["base_camera_rgb"]
-                if len(rgb.shape) == 4:
-                    for j in range(self.num_base_cameras):
-                        img_list.append(rgb[j])
-                else:
-                    img_list.append(rgb)
-            
-            # Tactile sensors
-            if self.has_tactile_left:
-                tactile = data["tactile_left_rgb"]
-                if tactile.ndim == 4 and tactile.shape[0] == 1:
-                    tactile = tactile[0]
-                img_list.append(tactile)
-            
-            if self.has_tactile_right:
-                tactile = data["tactile_right_rgb"]
-                if tactile.ndim == 4 and tactile.shape[0] == 1:
-                    tactile = tactile[0]
-                img_list.append(tactile)
-            
-            # 水平拼接图像
-            if len(img_list) > 0:
-                # 确保所有图像高度一致
-                max_height = max(img.shape[0] for img in img_list)
-                resized_imgs = []
-                for img in img_list:
-                    if img.shape[0] != max_height:
-                        scale = max_height / img.shape[0]
-                        new_width = int(img.shape[1] * scale)
-                        img = cv2.resize(img, (new_width, max_height))
-                    resized_imgs.append(img)
-                
-                combined = np.concatenate(resized_imgs, axis=1)
-                
-                # 添加帧号
-                combined = cv2.cvtColor(combined, cv2.COLOR_RGB2BGR)
-                cv2.putText(combined, f"Frame: {i}/{len(self.pkl_files)}", 
-                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, 
-                           (255, 255, 255), 2)
-                
-                images.append(combined)
+            combined = self._build_export_frame(
+                data=data,
+                frame_idx=i,
+                panel_size=panel_size,
+                grip_series=grip_series,
+                y_min=y_min,
+                y_max=y_max,
+            )
+            images.append(combined)
         
         if corrupted_frames:
             print(f"\nWarning: {len(corrupted_frames)} corrupted frames were skipped:")

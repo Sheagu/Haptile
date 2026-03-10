@@ -82,6 +82,7 @@ class OpenCVCamera:
         self._perspective_size = None
         self._perspective_config_path = perspective_config_path
         self._perspective_key = perspective_key
+        self._last_raw_frame_rgb = None
         
         # Support v4l2 by-path, regular v4l2 paths, and int device IDs
         try:
@@ -217,6 +218,8 @@ class OpenCVCamera:
         if not ret:
             raise RuntimeError(f"Failed to read from camera {self.camera_id}")
 
+        self._last_raw_frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
         if self._perspective_transform is not None and self._perspective_size is not None:
             frame = cv2.warpPerspective(
                 frame, self._perspective_transform, self._perspective_size
@@ -233,6 +236,11 @@ class OpenCVCamera:
         depth = np.zeros((frame_rgb.shape[0], frame_rgb.shape[1]), dtype=np.uint16)
         
         return frame_rgb, depth
+
+    def get_last_raw_frame_rgb(self) -> Optional[np.ndarray]:
+        if self._last_raw_frame_rgb is None:
+            return None
+        return self._last_raw_frame_rgb.copy()
 
     def release(self):
         """Release the camera resource."""

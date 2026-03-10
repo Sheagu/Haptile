@@ -181,7 +181,11 @@ class RobotEnv:
             image, depth = camera.read()
             # print("here")
             observations[f"{name}_rgb"] = image
-            if self._save_depth:
+            if hasattr(camera, "get_last_raw_frame_rgb"):
+                raw_image = camera.get_last_raw_frame_rgb()
+                if raw_image is not None:
+                    observations[f"{name}_raw_rgb"] = raw_image
+            if self._save_depth and not name.startswith("tactile_"):
                 observations[f"{name}_depth"] = depth
 
             if self._show_camera_view:

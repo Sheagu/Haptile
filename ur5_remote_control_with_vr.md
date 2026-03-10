@@ -31,3 +31,5 @@ Quest agent created
 10. 机器人关机：按面板右上角shut down，注意机器人的手远离桌面，因为会抖一下
 11. 眼镜关机：长按左边的圆点按钮，直到出现一个power off图标
 
+# 数据保存
+默认写到 shared/data/bc_data

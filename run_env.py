@@ -258,18 +258,20 @@ def save_frame(
     save_tactile_png=False,
     use_tactile=True,
 ) -> None:
-    obs["activated"] = activated
-    obs["control"] = action  # add action to obs
+    obs_to_save = dict(obs)
+    obs_to_save["activated"] = activated
+    obs_to_save["control"] = action  # add action to obs
+
     recorded_file = folder / (
         timestamp.isoformat().replace(":", "-").replace(".", "-") + ".pkl"
     )
     with open(recorded_file, "wb") as f:
-        pickle.dump(obs, f)
+        pickle.dump(obs_to_save, f)
 
     # save rgb image as png
     if save_png:
-        if "base_camera_rgb" in obs:
-            rgb = obs["base_camera_rgb"]
+        if "base_camera_rgb" in obs_to_save:
+            rgb = obs_to_save["base_camera_rgb"]
             # Handle different dimensions from RealSense (can have multiple cameras)
             if rgb.ndim == 4:  # (num_cameras, H, W, 3)
                 for i in range(rgb.shape[0]):
@@ -284,8 +286,8 @@ def save_frame(
     # save tactile images as png (only if use_tactile is True)
     if save_tactile_png and use_tactile:
         # Save left tactile sensor image
-        if "tactile_left_rgb" in obs:
-            tactile_left = obs["tactile_left_rgb"]
+        if "tactile_left_rgb" in obs_to_save:
+            tactile_left = obs_to_save["tactile_left_rgb"]
             if tactile_left.ndim == 4 and tactile_left.shape[0] == 1:
                 tactile_left = tactile_left[0]
             if tactile_left.ndim == 3:
@@ -294,8 +296,8 @@ def save_frame(
                 cv2.imwrite(fn_left, tactile_left_bgr)
 
         # Save right tactile sensor image
-        if "tactile_right_rgb" in obs:
-            tactile_right = obs["tactile_right_rgb"]
+        if "tactile_right_rgb" in obs_to_save:
+            tactile_right = obs_to_save["tactile_right_rgb"]
             if tactile_right.ndim == 4 and tactile_right.shape[0] == 1:
                 tactile_right = tactile_right[0]
             if tactile_right.ndim == 3:
