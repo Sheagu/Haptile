@@ -103,6 +103,13 @@ class DataVisualizer:
         depth_normalized = np.clip(depth_normalized, min_val, max_val)
         depth_normalized = (depth_normalized - min_val) / (max_val - min_val + 1e-6)
         return (depth_normalized * 255).astype(np.uint8)
+
+    def _compute_shared_height(self, images):
+        """Compute a shared height that fits a list of images while keeping aspect ratio."""
+        valid_images = [img for img in images if img is not None and img.shape[0] > 0 and img.shape[1] > 0]
+        if not valid_images:
+            return None
+        return min(img.shape[0] for img in valid_images)
     
     def visualize_interactive(self):
         """交互式可视化"""
@@ -361,20 +368,36 @@ class DataVisualizer:
                     img_list.append(rgb)
             
             # Tactile sensors
+            tactile_indices = []
+            tactile_images = []
             if self.has_tactile_left:
                 tactile = data["tactile_left_rgb"]
                 if tactile.ndim == 4 and tactile.shape[0] == 1:
                     tactile = tactile[0]
+                tactile_images.append(tactile)
+                tactile_indices.append(len(img_list))
                 img_list.append(tactile)
             
             if self.has_tactile_right:
                 tactile = data["tactile_right_rgb"]
                 if tactile.ndim == 4 and tactile.shape[0] == 1:
                     tactile = tactile[0]
+                tactile_images.append(tactile)
+                tactile_indices.append(len(img_list))
                 img_list.append(tactile)
+
+            tactile_shared_height = self._compute_shared_height(tactile_images)
             
             # 水平拼接图像
             if len(img_list) > 0:
+                if tactile_shared_height is not None:
+                    for idx in tactile_indices:
+                        img = img_list[idx]
+                        if img.shape[0] != tactile_shared_height:
+                            scale = tactile_shared_height / img.shape[0]
+                            new_width = max(1, int(round(img.shape[1] * scale)))
+                            img_list[idx] = cv2.resize(img, (new_width, tactile_shared_height))
+
                 # 确保所有图像高度一致
                 max_height = max(img.shape[0] for img in img_list)
                 resized_imgs = []

@@ -160,6 +160,46 @@ class DataVisualizer:
         panel[y0:y0 + new_h, x0:x0 + new_w] = resized
         return panel
 
+    def _compute_shared_height(self, images, panel_size):
+        """Compute a shared display height that fits all images in the target panel."""
+        panel_w, panel_h = panel_size
+        height_limit = panel_h
+
+        for image in images:
+            if image is None:
+                continue
+
+            img_h, img_w = image.shape[:2]
+            if img_h == 0 or img_w == 0:
+                continue
+
+            height_limit = min(height_limit, int(panel_w * img_h / img_w))
+
+        return max(1, height_limit)
+
+    def _resize_panel_with_target_height(self, image, panel_size, target_height=None):
+        panel_w, panel_h = panel_size
+        panel = np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
+        if image is None:
+            return panel
+
+        img_h, img_w = image.shape[:2]
+        if img_h == 0 or img_w == 0:
+            return panel
+
+        if target_height is None:
+            scale = min(panel_w / img_w, panel_h / img_h)
+        else:
+            scale = min(target_height / img_h, panel_w / img_w, panel_h / img_h)
+
+        new_w = max(1, int(round(img_w * scale)))
+        new_h = max(1, int(round(img_h * scale)))
+        resized = cv2.resize(image, (new_w, new_h))
+        x0 = (panel_w - new_w) // 2
+        y0 = (panel_h - new_h) // 2
+        panel[y0:y0 + new_h, x0:x0 + new_w] = resized
+        return panel
+
     def _annotate_panel(self, panel, title):
         annotated = panel.copy()
         cv2.rectangle(annotated, (0, 0), (annotated.shape[1], 34), (24, 24, 24), -1)
@@ -321,18 +361,29 @@ class DataVisualizer:
                 else:
                     visual_rgb = base_rgb
 
+        tactile_left = self._to_rgb_image(data.get("tactile_left_rgb") if self.has_tactile_left else None)
+        tactile_right = self._to_rgb_image(data.get("tactile_right_rgb") if self.has_tactile_right else None)
+        tactile_shared_height = self._compute_shared_height(
+            [img for img in (tactile_left, tactile_right) if img is not None],
+            panel_size,
+        )
+        marker_left = self._to_rgb_image(
+            data.get("tactile_left_marker_tracking") if self.has_tactile_left_marker_tracking else None
+        )
+        marker_right = self._to_rgb_image(
+            data.get("tactile_right_marker_tracking") if self.has_tactile_right_marker_tracking else None
+        )
+        marker_shared_height = self._compute_shared_height(
+            [img for img in (marker_left, marker_right) if img is not None],
+            panel_size,
+        )
+
         panel_specs = [
             ("Visual RGB", visual_rgb),
-            ("Tactile Left RGB", data.get("tactile_left_rgb") if self.has_tactile_left else None),
-            ("Tactile Right RGB", data.get("tactile_right_rgb") if self.has_tactile_right else None),
-            (
-                "Tactile Left Marker",
-                data.get("tactile_left_marker_tracking") if self.has_tactile_left_marker_tracking else None,
-            ),
-            (
-                "Tactile Right Marker",
-                data.get("tactile_right_marker_tracking") if self.has_tactile_right_marker_tracking else None,
-            ),
+            ("Tactile Left RGB", tactile_left),
+            ("Tactile Right RGB", tactile_right),
+            ("Tactile Left Marker", marker_left),
+            ("Tactile Right Marker", marker_right),
         ]
 
         for title, image in panel_specs:
@@ -340,7 +391,21 @@ class DataVisualizer:
             if rgb_image is None:
                 panels.append(self._make_text_panel(title, "Not available", panel_size))
             else:
-                panels.append(self._annotate_panel(self._resize_panel(rgb_image, panel_size), title))
+                if title in {"Tactile Left RGB", "Tactile Right RGB"}:
+                    panel = self._resize_panel_with_target_height(
+                        rgb_image,
+                        panel_size,
+                        target_height=tactile_shared_height,
+                    )
+                elif title in {"Tactile Left Marker", "Tactile Right Marker"}:
+                    panel = self._resize_panel_with_target_height(
+                        rgb_image,
+                        panel_size,
+                        target_height=marker_shared_height,
+                    )
+                else:
+                    panel = self._resize_panel(rgb_image, panel_size)
+                panels.append(self._annotate_panel(panel, title))
 
         panels.append(self._draw_gripper_plot(frame_idx, grip_series, y_min, y_max, panel_size))
 
