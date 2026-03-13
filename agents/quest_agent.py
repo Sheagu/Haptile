@@ -174,7 +174,7 @@ class SingleArmQuestAgent(Agent):
             )
 
         if self.eef_control_mode == 0:
-            new_gripper_angle = [(button_data[grip_key][0])*10//1/10]  #gripper angle
+            new_gripper_angle = [(button_data[grip_key][0]) * 100 // 1 / 100]  # gripper angle
             # print(new_gripper_angle)
         elif self.eef_control_mode == 1:
             new_gripper_angle = [button_data[grip_key][0]] * 6  # [0, 1]
