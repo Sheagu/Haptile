@@ -1,6 +1,7 @@
 import datetime
 import os
 import pickle
+import socket
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ from marker_tracking.utils import (
     plot_marker_delta,
 )
 from robot_node import ZMQClientRobot
+from udp_haptics_sender import clamp01, send_packet
 
 trigger_state = {"r": False,"l":False}
 
@@ -137,6 +139,51 @@ class MarkerTrackingState:
     display_window: str | None = None
 
 
+@dataclass
+class HapticsConfig:
+    host: str
+    port: int
+    min_motion: float
+    max_motion: float
+    smoothing: float
+    active_only: bool
+
+
+class HeadsetHapticsSender:
+    def __init__(self, config: HapticsConfig):
+        self.config = config
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.left_force = 0.0
+        self.right_force = 0.0
+
+    def _motion_to_force(self, motion: float) -> float:
+        if motion <= self.config.min_motion:
+            return 0.0
+        motion_span = max(self.config.max_motion - self.config.min_motion, 1e-6)
+        normalized = (motion - self.config.min_motion) / motion_span
+        return clamp01(normalized)
+
+    def update(self, left_motion: float | None, right_motion: float | None, enabled: bool = True):
+        target_left = self._motion_to_force(left_motion or 0.0) if enabled else 0.0
+        target_right = self._motion_to_force(right_motion or 0.0) if enabled else 0.0
+        alpha = clamp01(self.config.smoothing)
+        self.left_force = (1.0 - alpha) * self.left_force + alpha * target_left
+        self.right_force = (1.0 - alpha) * self.right_force + alpha * target_right
+        send_packet(
+            self.sock,
+            self.config.host,
+            self.config.port,
+            self.left_force,
+            self.right_force,
+        )
+
+    def stop(self):
+        try:
+            send_packet(self.sock, self.config.host, self.config.port, 0.0, 0.0)
+        finally:
+            self.sock.close()
+
+
 def _build_marker_tracking_params(args: "Args") -> dict:
     return {
         "morphop_kernel": cv2.getStructuringElement(
@@ -197,9 +244,9 @@ def _update_marker_tracking(
     lk_params: dict,
     reset_on_loss: bool,
     arrow_scale: float,
-) -> tuple[MarkerTrackingState | None, np.ndarray | None]:
+) -> tuple[MarkerTrackingState | None, np.ndarray | None, float | None]:
     if frame is None:
-        return state, None
+        return state, None, None
 
     if state is None or state.ref_points is None or state.ref_gray is None:
         state = _init_marker_tracking_state(
@@ -209,7 +256,7 @@ def _update_marker_tracking(
             create_window=False,
         )
         if state is None or state.ref_points is None or state.ref_gray is None:
-            return state, None
+            return state, None, None
 
     track_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     next_points, status, _ = cv2.calcOpticalFlowPyrLK(
@@ -223,20 +270,22 @@ def _update_marker_tracking(
         if reset_on_loss:
             return _init_marker_tracking_state(
                 state.name, frame, marker_tracking_params, create_window=False
-            ), None
-        return state, None
+            ), None, None
+        return state, None, None
 
     status = status.reshape(-1).astype(bool)
     if not np.any(status):
         if reset_on_loss:
             return _init_marker_tracking_state(
                 state.name, frame, marker_tracking_params, create_window=False
-            ), None
-        return state, None
+            ), None, None
+        return state, None, None
 
     ref_points = state.ref_points.reshape(-1, 2)[status]
     tracked_points = next_points.reshape(-1, 2)[status]
     deltas = tracked_points - ref_points
+    delta_norms = np.linalg.norm(deltas, axis=1)
+    mean_motion = float(delta_norms.mean()) if len(delta_norms) > 0 else 0.0
     overlay = plot_marker_delta(
         frame,
         tracked_points,
@@ -244,8 +293,15 @@ def _update_marker_tracking(
         scale=arrow_scale,
         arrow_color=(255, 0, 0),
     )
-    state.ref_points = ref_points.reshape(-1, 1, 2).astype(np.float32)
-    return state, overlay
+    return state, overlay, mean_motion
+
+
+def _is_right_b_pressed(agent) -> bool:
+    oculus_reader = getattr(agent, "oculus_reader", None)
+    if oculus_reader is None:
+        return False
+    _, button_data = oculus_reader.get_transformations_and_buttons()
+    return bool(button_data.get("B", False))
 
 
 def save_frame(
@@ -342,6 +398,12 @@ class Args:
     marker_morph_close_iter: int = 1
     marker_dilate_size: int = 3
     marker_dilate_iter: int = 0
+    headset_haptics_host: str = ""
+    headset_haptics_port: int = 9000
+    haptics_min_motion: float = 0.2
+    haptics_max_motion: float = 4.0
+    haptics_smoothing: float = 0.35
+    haptics_active_only: bool = True
     data_dir: str = "./shared/data/bc_data"
     verbose: bool = False
     safe: bool = False
@@ -478,6 +540,8 @@ def main(args):
 
     obs = env.get_obs()
     marker_tracking_states: dict[str, MarkerTrackingState | None] = {}
+    marker_motion = {"tactile_left": 0.0, "tactile_right": 0.0}
+    prev_b_pressed = False
     if args.enable_marker_tracking and args.use_tactile:
         for sensor_name in ("tactile_left", "tactile_right"):
             obs_key = f"{sensor_name}_rgb"
@@ -489,6 +553,25 @@ def main(args):
             )
     else:
         marker_tracking_states = {}
+
+    haptics_sender = None
+    if args.headset_haptics_host:
+        haptics_sender = HeadsetHapticsSender(
+            HapticsConfig(
+                host=args.headset_haptics_host,
+                port=args.headset_haptics_port,
+                min_motion=args.haptics_min_motion,
+                max_motion=args.haptics_max_motion,
+                smoothing=args.haptics_smoothing,
+                active_only=args.haptics_active_only,
+            )
+        )
+        print(
+            "Headset haptics enabled - "
+            f"host: {args.headset_haptics_host}, port: {args.headset_haptics_port}"
+        )
+    else:
+        print("Headset haptics disabled")
 
     # if args.jit_compile:
     #     agent.compile_inference(
@@ -571,11 +654,34 @@ def main(args):
             action = agent.act(obs)
             dt = datetime.datetime.now()
 
+            b_pressed = _is_right_b_pressed(agent)
+            if (
+                args.enable_marker_tracking
+                and args.use_tactile
+                and b_pressed
+                and not prev_b_pressed
+            ):
+                for sensor_name in ("tactile_left", "tactile_right"):
+                    obs_key = f"{sensor_name}_rgb"
+                    marker_tracking_states[sensor_name] = _init_marker_tracking_state(
+                        sensor_name=sensor_name,
+                        frame=obs.get(obs_key),
+                        marker_tracking_params=marker_tracking_params,
+                        create_window=False,
+                    )
+                    marker_motion[sensor_name] = 0.0
+                print_color(
+                    "\n[marker_tracking] reset tactile reference frame from right controller B",
+                    color="cyan",
+                    attrs=("bold",),
+                )
+            prev_b_pressed = b_pressed
+
             if args.enable_marker_tracking and args.use_tactile:
                 for sensor_name in ("tactile_left", "tactile_right"):
                     obs_key = f"{sensor_name}_rgb"
                     tracking_key = f"{sensor_name}_marker_tracking"
-                    state, overlay = _update_marker_tracking(
+                    state, overlay, motion = _update_marker_tracking(
                         sensor_name=sensor_name,
                         frame=obs.get(obs_key),
                         state=marker_tracking_states.get(sensor_name),
@@ -585,6 +691,10 @@ def main(args):
                         arrow_scale=args.marker_arrow_scale,
                     )
                     marker_tracking_states[sensor_name] = state
+                    marker_motion[sensor_name] = motion or 0.0
+                    obs[f"{sensor_name}_marker_motion"] = np.array(
+                        marker_motion[sensor_name], dtype=np.float32
+                    )
                     if overlay is not None:
                         obs[tracking_key] = overlay
                         if (
@@ -597,6 +707,18 @@ def main(args):
                                 cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
                             )
                             cv2.waitKey(1)
+
+            if haptics_sender is not None:
+                max_motion = max(
+                    marker_motion["tactile_left"],
+                    marker_motion["tactile_right"],
+                )
+                haptics_sender.update(
+                    left_motion=0.0,
+                    right_motion=max_motion,
+                    enabled=(not haptics_sender.config.active_only)
+                    or getattr(agent, "control_active", True),
+                )
 
             if args.save_data:
                 if is_first_frame:
@@ -659,6 +781,9 @@ def main(args):
         #             f.write(f"{step}: {freq}\n")
         # else:
         print("Done")
+
+        if haptics_sender is not None:
+            haptics_sender.stop()
 
         # Release camera resources
         print("Releasing camera resources...")

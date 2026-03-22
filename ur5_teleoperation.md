@@ -26,13 +26,13 @@ Fig. 2
    2. Target the VR controller to the black screen on the right. Press with your index finger. The controller is connected if you can feel the vibration.
    3. Put the headset upside down on the table. Press the controller again with your index finger to check if the connection is still effective.
 8. Start robot control: Refer to `QUICK_START.md` for requirements for your own task.
-   1. Example： Run `python run_env.py --save-data` in another terminal. If you see the following outputs, it means the VR controller doesn't have access, and you can kill the session, reset the headset and run the code again.
+   1. Example： Run `python run_env.py --save-data` in another terminal. If you see the following outputs, they mean the VR controller doesn't have access, and you can kill the session, reset the headset and run the code again.
    Case 1:
 ```commandline
 Device is visible but could not be accessed.
 Run `adb devices` to verify that the device is visible and accessible. 
 ```
-   Case 2:
+   Case 2 (stuck):
 ```
 Quest agent created
 (1, 480, 640) uint16

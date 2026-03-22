@@ -31,23 +31,23 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.cam_port.executor": "Run",
-    "Python.markerless.executor": "Run",
-    "Python.opencv_camera.executor": "Run",
-    "Python.realsense_camera.executor": "Run",
-    "Python.realsense_id.executor": "Run",
-    "Python.realsense_show.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "tactile",
-    "last_opened_file_path": "/home/shiyigu/Documents/project",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.cam_port.executor&quot;: &quot;Run&quot;,
+    &quot;Python.markerless.executor&quot;: &quot;Run&quot;,
+    &quot;Python.opencv_camera.executor&quot;: &quot;Run&quot;,
+    &quot;Python.realsense_camera.executor&quot;: &quot;Run&quot;,
+    &quot;Python.realsense_id.executor&quot;: &quot;Run&quot;,
+    &quot;Python.realsense_show.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;tactile&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/shiyigu/Documents/project&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected="Python.markerless">
     <configuration name="cam_port" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="teleUR" />
