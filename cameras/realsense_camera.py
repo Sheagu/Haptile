@@ -8,6 +8,9 @@ import pyrealsense2 as rs
 from .camera import CameraDriver
 
 
+REALSENSE_ALIASES = {"435", "d435", "realsense", "rs"}
+
+
 def get_device_ids() -> List[str]:
     device_ids = []
     for dev in rs.context().query_devices():
@@ -15,9 +18,21 @@ def get_device_ids() -> List[str]:
     return device_ids
 
 
+def _looks_like_serial(identifier: object) -> bool:
+    return isinstance(identifier, str) and identifier.isdigit() and len(identifier) >= 8
+
+
 class RealSenseCamera(CameraDriver):
     def __repr__(self) -> str:
         return f"RealSenseCamera(device_ids={self.device_ids})"
+
+    @staticmethod
+    def supports_identifier(identifier: object) -> bool:
+        if identifier is None:
+            return True
+        if isinstance(identifier, str) and identifier.lower() in REALSENSE_ALIASES:
+            return True
+        return _looks_like_serial(identifier)
 
     def __init__(
         self,
@@ -31,10 +46,7 @@ class RealSenseCamera(CameraDriver):
         self.height = height
         self.width = width
         self.fps = fps
-        # if device_ids is None:
-        self.device_ids = get_device_ids()
-        # else:
-        #     self.device_ids = device_ids
+        self.device_ids = self._resolve_device_ids(device_ids)
         self.img_size = img_size
 
         # Start stream
@@ -62,6 +74,39 @@ class RealSenseCamera(CameraDriver):
         # Warm start camera (realsense automatically adjusts brightness during initial frames)
         for _ in range(warm_start):
             self._get_frames()
+
+    @staticmethod
+    def _resolve_device_ids(device_ids: Optional[List]) -> List[str]:
+        available_ids = get_device_ids()
+        if not available_ids:
+            raise RuntimeError("No RealSense devices found.")
+
+        if device_ids is None:
+            return available_ids
+
+        requested_ids = [str(device_id) for device_id in device_ids]
+        if not requested_ids:
+            return available_ids
+
+        resolved_ids: List[str] = []
+        for requested_id in requested_ids:
+            normalized = requested_id.lower()
+            if normalized in REALSENSE_ALIASES:
+                if len(available_ids) == 1:
+                    resolved_ids.append(available_ids[0])
+                    continue
+                raise ValueError(
+                    "RealSense alias is ambiguous with multiple devices connected. "
+                    f"Available serials: {available_ids}"
+                )
+            if requested_id not in available_ids:
+                raise ValueError(
+                    f"Requested RealSense device {requested_id} not found. "
+                    f"Available serials: {available_ids}"
+                )
+            resolved_ids.append(requested_id)
+
+        return resolved_ids
 
     def _get_frames(self):
         framesets = [pipe.wait_for_frames() for pipe in self.pipes]
@@ -119,3 +164,7 @@ class RealSenseCamera(CameraDriver):
             image = rgbd[..., :3].astype(np.uint8)
             depth = rgbd[..., -1].astype(np.uint16)
         return image, depth
+
+    def release(self):
+        for pipe in self.pipes:
+            pipe.stop()

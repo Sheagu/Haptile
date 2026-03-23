@@ -157,6 +157,29 @@ class HeadsetHapticsSender:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.left_force = 0.0
         self.right_force = 0.0
+        self._send_failed = False
+        self._send_error = None
+
+    def _send_forces(self, left_force: float, right_force: float) -> bool:
+        if self._send_failed:
+            return False
+        try:
+            send_packet(
+                self.sock,
+                self.config.host,
+                self.config.port,
+                left_force,
+                right_force,
+            )
+            return True
+        except OSError as exc:
+            self._send_failed = True
+            self._send_error = exc
+            print(
+                "[haptics] disabled after send failure: "
+                f"host={self.config.host!r}, port={self.config.port}, error={exc}"
+            )
+            return False
 
     def _motion_to_force(self, motion: float) -> float:
         if motion <= self.config.min_motion:
@@ -179,17 +202,11 @@ class HeadsetHapticsSender:
         target_right = self._motion_to_force(right_motion or 0.0) if enabled else 0.0
         self.left_force = self._smooth_force(self.left_force, target_left)
         self.right_force = self._smooth_force(self.right_force, target_right)
-        send_packet(
-            self.sock,
-            self.config.host,
-            self.config.port,
-            self.left_force,
-            self.right_force,
-        )
+        self._send_forces(self.left_force, self.right_force)
 
     def stop(self):
         try:
-            send_packet(self.sock, self.config.host, self.config.port, 0.0, 0.0)
+            self._send_forces(0.0, 0.0)
         finally:
             self.sock.close()
 
