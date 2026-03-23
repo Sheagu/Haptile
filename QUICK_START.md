@@ -9,6 +9,8 @@ python launch_nodes.py
 
 python launch_nodes.py 
 
+#### 修改camera id读取方式为端口号：/dev/v4l/by-path/xxxx
+
 ```bash
 python run_env.py \
   --tactile-left-camera-id 2 \
@@ -77,6 +79,9 @@ python run_env.py --hz 30 --save-data
 ```bash
 python run_env.py --no-show-camera-view --save-data
 ```
+
+### 7. 添加触觉反馈和重置功能
+使用UDP通信实现触觉反馈，将触觉传感器里面的marker motion大小映射为headset手柄震动强度；同时设置右手柄按键B来重置触觉图像参考帧为当前帧。
 
 ## 布尔参数速查表
 
