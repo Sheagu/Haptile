@@ -63,12 +63,43 @@ python run_env.py --save-data --save-png --save-tactile-png
 
 ### 4. 自定义分辨率
 ```bash
+python launch_nodes.py \
+  --realsense-width 1280 \
+  --realsense-height 720
+
 python run_env.py \
   --realsense-width 1280 \
   --realsense-height 720 \
   --tactile-width 640 \
   --tactile-height 480
 ```
+
+说明：默认 `use_camera_node=True`，所以 RealSense 分辨率需要在 `launch_nodes.py` 和 `run_env.py` 两边保持一致；否则 `run_env.py` 里的 `--realsense-width/height` 不会改变实际采集视角。
+
+### 4.1 加第二个 RealSense 作为第三视角
+先查看两台 RealSense 的 serial：
+```bash
+python3 realsense_id.py
+```
+
+然后把第一视角和第三视角的 serial 一起传给 `launch_nodes.py`：
+```bash
+python launch_nodes.py \
+  --cam-names 239122301234 128422270519 \
+  --realsense-width 1280 \
+  --realsense-height 720
+
+python run_env.py \
+  --realsense-width 1280 \
+  --realsense-height 720 \
+  --save-data \
+  --save-png
+```
+
+说明：
+- `base_camera_rgb[0]` 是第一台 RealSense，`base_camera_rgb[1]` 是第二台 RealSense。
+- 如果启用 PNG 保存，会自动生成 `*-base_0.png` 和 `*-base_1.png`。
+- `show_camera_view` 现在支持多 RealSense，会在同一个窗口里显示两路 RGB-D。
 
 ### 5. 调整控制频率
 ```bash

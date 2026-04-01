@@ -53,6 +53,7 @@ class RealSenseCamera(CameraDriver):
         print(f"Connecting to RealSense cameras ({len(self.device_ids)} found) ...")
         self.pipes = []
         self.profiles = OrderedDict()
+        self.depth_postprocess = OrderedDict()
         for i, device_id in enumerate(self.device_ids):
             pipe = rs.pipeline()
             config = rs.config()
@@ -67,6 +68,14 @@ class RealSenseCamera(CameraDriver):
 
             self.pipes.append(pipe)
             self.profiles[device_id] = pipe.start(config)
+            self.depth_postprocess[device_id] = {
+                "decimation": rs.decimation_filter(1),
+                "to_disparity": rs.disparity_transform(True),
+                "spatial": rs.spatial_filter(),
+                "temporal": rs.temporal_filter(),
+                "to_depth": rs.disparity_transform(False),
+                "hole_filling": rs.hole_filling_filter(),
+            }
             print(f"Connected to camera {i} ({device_id}).")
 
         self.align = rs.align(rs.stream.color)
@@ -143,12 +152,13 @@ class RealSenseCamera(CameraDriver):
             rgbd[i, :, :, :3] = np.asanyarray(color_frame.get_data())
 
             depth_frame = frameset.get_depth_frame()
-            depth_frame = rs.decimation_filter(1).process(depth_frame)
-            depth_frame = rs.disparity_transform(True).process(depth_frame)
-            depth_frame = rs.spatial_filter().process(depth_frame)
-            depth_frame = rs.temporal_filter().process(depth_frame)
-            depth_frame = rs.disparity_transform(False).process(depth_frame)
-            depth_frame = rs.hole_filling_filter().process(depth_frame)
+            postprocess = self.depth_postprocess[self.device_ids[i]]
+            depth_frame = postprocess["decimation"].process(depth_frame)
+            depth_frame = postprocess["to_disparity"].process(depth_frame)
+            depth_frame = postprocess["spatial"].process(depth_frame)
+            depth_frame = postprocess["temporal"].process(depth_frame)
+            depth_frame = postprocess["to_depth"].process(depth_frame)
+            depth_frame = postprocess["hole_filling"].process(depth_frame)
             rgbd[i, :, :, 3] = np.asanyarray(depth_frame.get_data())
 
             if self.img_size is not None:

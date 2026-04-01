@@ -115,6 +115,9 @@ class EvalRobotEnv:
 
 
 class RobotEnv:
+    DEPTH_DISPLAY_MIN_MM = 200
+    DEPTH_DISPLAY_MAX_MM = 1500
+
     def __init__(
         self,
         robot: Robot,
@@ -143,6 +146,73 @@ class RobotEnv:
     def __len__(self):
         # Return positive integer for batched envs.
         return 0
+
+    @staticmethod
+    def _depth_to_colormap(depth: np.ndarray) -> np.ndarray:
+        depth_mm = depth.astype(np.float32)
+        valid = depth_mm > 0
+
+        depth_clipped = np.clip(
+            depth_mm, RobotEnv.DEPTH_DISPLAY_MIN_MM, RobotEnv.DEPTH_DISPLAY_MAX_MM
+        )
+        depth_scaled = (
+            (depth_clipped - RobotEnv.DEPTH_DISPLAY_MIN_MM)
+            * 255.0
+            / (RobotEnv.DEPTH_DISPLAY_MAX_MM - RobotEnv.DEPTH_DISPLAY_MIN_MM)
+        )
+        depth_uint8 = np.zeros(depth.shape, dtype=np.uint8)
+        depth_uint8[valid] = depth_scaled[valid].astype(np.uint8)
+        return cv2.applyColorMap(depth_uint8, cv2.COLORMAP_JET)
+
+    @staticmethod
+    def _compose_camera_view(image: np.ndarray, depth: np.ndarray) -> np.ndarray:
+        if image.ndim == 3:
+            image_batch = image[None, ...]
+        elif image.ndim == 4:
+            image_batch = image
+        else:
+            raise ValueError(f"Unsupported image shape: {image.shape}")
+
+        if depth.ndim == 2:
+            depth_batch = depth[None, ...]
+        elif depth.ndim == 3:
+            depth_batch = depth
+        else:
+            raise ValueError(f"Unsupported depth shape: {depth.shape}")
+
+        if image_batch.shape[0] != depth_batch.shape[0]:
+            raise ValueError(
+                f"Mismatched camera count: image.shape={image.shape}, depth.shape={depth.shape}"
+            )
+
+        panels = []
+        for camera_idx in range(image_batch.shape[0]):
+            rgb = image_batch[camera_idx][:, :, ::-1]
+            depth_colormap = RobotEnv._depth_to_colormap(depth_batch[camera_idx])
+
+            if rgb.shape[:2] != depth_colormap.shape[:2] or rgb.dtype != depth_colormap.dtype:
+                raise ValueError(
+                    f"image.shape: {rgb.shape}, depth.shape: {depth_colormap.shape}, "
+                    f"image.dtype: {rgb.dtype}, depth.dtype: {depth_colormap.dtype}"
+                )
+
+            panel = cv2.hconcat([rgb, depth_colormap])
+            if image_batch.shape[0] > 1:
+                cv2.putText(
+                    panel,
+                    f"cam {camera_idx}",
+                    (16, 32),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+            panels.append(panel)
+
+        if len(panels) == 1:
+            return panels[0]
+        return cv2.vconcat(panels)
 
     def step_eef(self, eef_pose: np.ndarray) -> Dict[str, Any]:
         """Step the environment forward.
@@ -189,23 +259,7 @@ class RobotEnv:
                 observations[f"{name}_depth"] = depth
 
             if self._show_camera_view:
-                print(depth.shape, depth.dtype)
-                if image.ndim == 4 and image.shape[0] == 1:
-                    image = image[0]
-                if depth.ndim == 3 and depth.shape[0] == 1:
-                    depth = depth[0]
-                depth_normalized = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
-                depth_uint8 = depth_normalized.astype(np.uint8)
-                depth = cv2.applyColorMap(depth_uint8, cv2.COLORMAP_JET)
-                # depth = cv2.applyColorMap(depth, cv2.COLORMAP_JET)
-                # Remove batch dimension if present for image
-                # Assert shapes and types now match
-                if image.shape[:2] != depth.shape[:2] or image.dtype != depth.dtype:
-                    raise ValueError(
-                        f"image.shape: {image.shape}, depth.shape: {depth.shape}, "
-                        f"image.dtype: {image.dtype}, depth.dtype: {depth.dtype}"
-                    )
-                image_depth = cv2.hconcat([image[:, :, ::-1], depth])
+                image_depth = self._compose_camera_view(image, depth)
                 cv2.imshow(name, image_depth)
                 cv2.waitKey(1)
 

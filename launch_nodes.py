@@ -16,8 +16,11 @@ class Args:
     hostname: str = "127.0.0.1"
     robot_ip: str = "10.40.101.10"
     faster: bool = True
-    cam_names: Tuple[str, ...] = ("435",)
+    cam_names: Tuple[str, ...] = ("first_view", "third_view")
     ability_gripper_grip_range: int = 110
+    realsense_width: int = 640
+    realsense_height: int = 480
+    realsense_fps: int = 30
     img_size: Optional[Tuple[int, int]] = None  # (320, 240)
 
 
@@ -26,7 +29,13 @@ def launch_server_cameras(port: int, camera_ports: List[str], args: Args):
     from cameras.realsense_camera import RealSenseCamera
 
     if all(RealSenseCamera.supports_identifier(camera_id) for camera_id in camera_ports):
-        camera = RealSenseCamera(camera_ports, img_size=args.img_size)
+        camera = RealSenseCamera(
+            camera_ports,
+            width=args.realsense_width,
+            height=args.realsense_height,
+            fps=args.realsense_fps,
+            img_size=args.img_size,
+        )
     elif len(camera_ports) == 1:
         print(camera_ports)
         camera = OpenCVCamera(camera_ports[0], width=640, height=480)
@@ -82,7 +91,8 @@ def launch_robot_server(port: int, args: Args):
 
 # Camera aliases. RealSense aliases are resolved to serial numbers at runtime.
 CAM_PORTS = {
-    "435": "435",
+    "first_view": "143322072669",
+    "third_view": "213622078586",
 }
 
 # CAM_PORTS = {

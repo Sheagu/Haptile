@@ -11,8 +11,8 @@
 # set -e
 
 # Configuration
-DATA_DIR="./shared/data/huawei_0310_2"
-OUTPUT_DIR="./shared/data/huawei_0310_2"  # Default: same as input
+DATA_DIR="./shared/data/bc_data"
+OUTPUT_DIR="./shared/data/bc_data"  # Default: same as input
 FPS=10
 SCRIPT="visualize_data.py"
 SINGLE_DATASET=""

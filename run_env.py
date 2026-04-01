@@ -146,6 +146,13 @@ class HapticsConfig:
     port: int
     min_motion: float
     max_motion: float
+    discrete_levels: bool
+    soft_threshold: float
+    mild_threshold: float
+    firm_threshold: float
+    soft_force: float
+    mild_force: float
+    firm_force: float
     smoothing: float
     release_smoothing: float
     active_only: bool
@@ -185,8 +192,20 @@ class HeadsetHapticsSender:
         if motion <= self.config.min_motion:
             return 0.0
         motion_span = max(self.config.max_motion - self.config.min_motion, 1e-6)
-        normalized = (motion - self.config.min_motion) / motion_span
-        return clamp01(normalized)
+        normalized = clamp01((motion - self.config.min_motion) / motion_span)
+        if not self.config.discrete_levels:
+            return normalized
+
+        soft_threshold = clamp01(self.config.soft_threshold)
+        mild_threshold = max(soft_threshold, clamp01(self.config.mild_threshold))
+        firm_threshold = max(mild_threshold, clamp01(self.config.firm_threshold))
+        if normalized <= soft_threshold:
+            return 0.0
+        if normalized <= mild_threshold:
+            return clamp01(self.config.soft_force)
+        if normalized <= firm_threshold:
+            return clamp01(self.config.mild_force)
+        return clamp01(self.config.firm_force)
 
     def _smooth_force(self, current_force: float, target_force: float) -> float:
         if target_force <= 0.0:
@@ -197,11 +216,30 @@ class HeadsetHapticsSender:
             alpha = clamp01(self.config.smoothing)
         return (1.0 - alpha) * current_force + alpha * target_force
 
+    def _force_to_state(self, force: float) -> str:
+        if force <= 1e-6:
+            return "off"
+        if self.config.discrete_levels:
+            if force >= clamp01(self.config.firm_force) - 1e-6:
+                return "firm"
+            if force >= clamp01(self.config.mild_force) - 1e-6:
+                return "mild"
+            if force >= clamp01(self.config.soft_force) - 1e-6:
+                return "soft"
+        return "active"
+
+    def current_state(self) -> str:
+        return self._force_to_state(max(self.left_force, self.right_force))
+
     def update(self, left_motion: float | None, right_motion: float | None, enabled: bool = True):
         target_left = self._motion_to_force(left_motion or 0.0) if enabled else 0.0
         target_right = self._motion_to_force(right_motion or 0.0) if enabled else 0.0
-        self.left_force = self._smooth_force(self.left_force, target_left)
-        self.right_force = self._smooth_force(self.right_force, target_right)
+        if self.config.discrete_levels:
+            self.left_force = target_left
+            self.right_force = target_right
+        else:
+            self.left_force = self._smooth_force(self.left_force, target_left)
+            self.right_force = self._smooth_force(self.right_force, target_right)
         self._send_forces(self.left_force, self.right_force)
 
     def stop(self):
@@ -490,10 +528,17 @@ class Args:
     marker_motion_release_smoothing: float = 0.8
     marker_motion_min_valid_points: int = 8
     marker_motion_compensate_global_drift: bool = True
-    headset_haptics_host: str = ""
+    headset_haptics_host: str = "192.168.1.126"
     headset_haptics_port: int = 9000
     haptics_min_motion: float = 0.2
-    haptics_max_motion: float = 4.0
+    haptics_max_motion: float = 2.0
+    haptics_discrete_levels: bool = True
+    haptics_soft_threshold: float = 0.25
+    haptics_mild_threshold: float = 0.5
+    haptics_firm_threshold: float = 0.75
+    haptics_soft_force: float = 0.1
+    haptics_mild_force: float = 0.4
+    haptics_firm_force: float = 1.0
     haptics_smoothing: float = 0.35
     haptics_release_smoothing: float = 1.0
     haptics_active_only: bool = True
@@ -649,6 +694,7 @@ def main(args):
         marker_tracking_states = {}
 
     haptics_sender = None
+    prev_haptics_state = None
     if args.headset_haptics_host:
         haptics_sender = HeadsetHapticsSender(
             HapticsConfig(
@@ -656,6 +702,13 @@ def main(args):
                 port=args.headset_haptics_port,
                 min_motion=args.haptics_min_motion,
                 max_motion=args.haptics_max_motion,
+                discrete_levels=args.haptics_discrete_levels,
+                soft_threshold=args.haptics_soft_threshold,
+                mild_threshold=args.haptics_mild_threshold,
+                firm_threshold=args.haptics_firm_threshold,
+                soft_force=args.haptics_soft_force,
+                mild_force=args.haptics_mild_force,
+                firm_force=args.haptics_firm_force,
                 smoothing=args.haptics_smoothing,
                 release_smoothing=args.haptics_release_smoothing,
                 active_only=args.haptics_active_only,
@@ -816,10 +869,18 @@ def main(args):
                 )
                 haptics_sender.update(
                     left_motion=0.0,
-                    right_motion=max_motion,
-                    enabled=(not haptics_sender.config.active_only)
-                    or getattr(agent, "control_active", True),
+                right_motion=max_motion,
+                enabled=(not haptics_sender.config.active_only)
+                or getattr(agent, "control_active", True),
                 )
+                current_haptics_state = haptics_sender.current_state()
+                if current_haptics_state != prev_haptics_state:
+                    print_color(
+                        f"\n[haptics] state: {current_haptics_state}",
+                        color="magenta",
+                        attrs=("bold",),
+                    )
+                    prev_haptics_state = current_haptics_state
 
             if args.save_data:
                 if is_first_frame:

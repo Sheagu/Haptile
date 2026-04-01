@@ -76,15 +76,50 @@ python run_env.py \
 ### 自定义分辨率
 
 ```bash
+python launch_nodes.py \
+  --realsense-width 1280 \
+  --realsense-height 720 \
+  --realsense-fps 30
+
 python run_env.py \
-  --realsense-width 640 \
-  --realsense-height 480 \
+  --realsense-width 1280 \
+  --realsense-height 720 \
   --realsense-fps 30 \
   --tactile-width 640 \
   --tactile-height 480 \
   --tactile-left-camera-id 2 \
   --tactile-right-camera-id 4
 ```
+
+说明：如果保持默认 `use_camera_node=True`，实际 RealSense 采集参数由 `launch_nodes.py` 决定；`run_env.py` 里的同名参数需要与之保持一致，避免保存数据时分辨率认知不一致。
+
+### 双 RealSense 配置（第一视角 + 第三视角）
+
+先列出 RealSense 设备 serial：
+```bash
+python3 realsense_id.py
+```
+
+再把两台设备都交给 camera node：
+```bash
+python launch_nodes.py \
+  --cam-names 239122301234 128422270519 \
+  --realsense-width 1280 \
+  --realsense-height 720 \
+  --realsense-fps 30
+
+python run_env.py \
+  --realsense-width 1280 \
+  --realsense-height 720 \
+  --realsense-fps 30 \
+  --save-data \
+  --save-png
+```
+
+说明：
+- 第 0 路通常放第一视角，第 1 路放第三视角，顺序由 `--cam-names` 的顺序决定。
+- 保存的 PKL 中，`base_camera_rgb` 形状会变成 `(2, H, W, 3)`。
+- 保存 PNG 时会得到 `*-base_0.png` 和 `*-base_1.png`。
 
 ### 完整参数列表
 

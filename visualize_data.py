@@ -8,6 +8,7 @@ import glob
 import os
 import pickle
 import sys
+import math
 from pathlib import Path
 
 # Fix numpy compatibility issue
@@ -231,6 +232,10 @@ class DataVisualizer:
         )
         return panel
 
+    def _make_blank_panel(self, panel_size):
+        panel_w, panel_h = panel_size
+        return np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
+
     def _extract_gripper_value(self, data):
         for key in ("gripper_position", "grip_position"):
             if key not in data:
@@ -351,15 +356,16 @@ class DataVisualizer:
 
     def _build_export_frame(self, data, frame_idx, panel_size, grip_series, y_min, y_max):
         panels = []
-        visual_rgb = None
+        visual_panels = []
         if self.has_base_rgb:
             base_rgb = data.get("base_camera_rgb")
             if base_rgb is not None:
                 base_rgb = np.asarray(base_rgb)
                 if base_rgb.ndim == 4 and base_rgb.shape[0] >= 1:
-                    visual_rgb = base_rgb[0]
+                    for cam_idx in range(base_rgb.shape[0]):
+                        visual_panels.append((f"Visual RGB {cam_idx}", base_rgb[cam_idx]))
                 else:
-                    visual_rgb = base_rgb
+                    visual_panels.append(("Visual RGB", base_rgb))
 
         tactile_left = self._to_rgb_image(data.get("tactile_left_rgb") if self.has_tactile_left else None)
         tactile_right = self._to_rgb_image(data.get("tactile_right_rgb") if self.has_tactile_right else None)
@@ -379,7 +385,7 @@ class DataVisualizer:
         )
 
         panel_specs = [
-            ("Visual RGB", visual_rgb),
+            *visual_panels,
             ("Tactile Left RGB", tactile_left),
             ("Tactile Right RGB", tactile_right),
             ("Tactile Left Marker", marker_left),
@@ -408,10 +414,15 @@ class DataVisualizer:
                 panels.append(self._annotate_panel(panel, title))
 
         panels.append(self._draw_gripper_plot(frame_idx, grip_series, y_min, y_max, panel_size))
+        columns = 3
+        total_slots = int(math.ceil(len(panels) / columns) * columns)
+        while len(panels) < total_slots:
+            panels.append(self._make_blank_panel(panel_size))
 
-        top_row = np.concatenate(panels[:3], axis=1)
-        bottom_row = np.concatenate(panels[3:6], axis=1)
-        combined = np.concatenate([top_row, bottom_row], axis=0)
+        rows = []
+        for row_start in range(0, len(panels), columns):
+            rows.append(np.concatenate(panels[row_start:row_start + columns], axis=1))
+        combined = np.concatenate(rows, axis=0)
 
         footer = f"Frame: {frame_idx}/{len(self.pkl_files) - 1} | File: {os.path.basename(self.pkl_files[frame_idx])}"
         cv2.rectangle(
