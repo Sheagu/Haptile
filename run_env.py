@@ -2,6 +2,7 @@ import datetime
 import os
 import pickle
 import socket
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -428,26 +429,90 @@ def _is_right_b_pressed(agent) -> bool:
     return bool(button_data.get("B", False))
 
 
-def save_frame(
-    folder: Path,
-    timestamp: datetime.datetime,
+def _prepare_obs_to_save(
     obs: Dict[str, np.ndarray],
     action: np.ndarray,
     activated=True,
-    save_png=False,
-    save_tactile_png=False,
-    use_tactile=True,
-) -> None:
+    save_raw_images_only=False,
+    save_base_size: tuple[int, int] | None = None,
+    save_tactile_size: tuple[int, int] | None = None,
+) -> Dict[str, np.ndarray]:
     obs_to_save = dict(obs)
     obs_to_save["activated"] = activated
     obs_to_save["control"] = action  # add action to obs
 
-    recorded_file = folder / (
-        timestamp.isoformat().replace(":", "-").replace(".", "-") + ".pkl"
-    )
-    with open(recorded_file, "wb") as f:
-        pickle.dump(obs_to_save, f)
+    if save_raw_images_only:
+        filtered_obs = {}
+        for key, value in obs_to_save.items():
+            if key.endswith("_depth"):
+                continue
+            if key.endswith("_marker_tracking"):
+                continue
+            if key.endswith("_raw_rgb"):
+                continue
+            filtered_obs[key] = value
 
+        # Prefer raw tactile frames when available, while keeping the saved field
+        # names consistent for downstream loaders.
+        for key in list(filtered_obs.keys()):
+            if key.endswith("_rgb"):
+                raw_key = key.replace("_rgb", "_raw_rgb")
+                if raw_key in obs_to_save:
+                    filtered_obs[key] = obs_to_save[raw_key]
+
+        obs_to_save = filtered_obs
+
+    if save_base_size is not None and "base_camera_rgb" in obs_to_save:
+        save_width, save_height = save_base_size
+        image = obs_to_save["base_camera_rgb"]
+        if isinstance(image, np.ndarray):
+            if image.ndim == 3:
+                if image.shape[1] != save_width or image.shape[0] != save_height:
+                    obs_to_save["base_camera_rgb"] = cv2.resize(
+                        image,
+                        (save_width, save_height),
+                        interpolation=cv2.INTER_AREA,
+                    )
+            elif image.ndim == 4:
+                if image.shape[2] != save_width or image.shape[1] != save_height:
+                    obs_to_save["base_camera_rgb"] = np.stack(
+                        [
+                            cv2.resize(
+                                frame,
+                                (save_width, save_height),
+                                interpolation=cv2.INTER_AREA,
+                            )
+                            for frame in image
+                        ],
+                        axis=0,
+                    )
+
+    if save_tactile_size is not None:
+        save_width, save_height = save_tactile_size
+        for key in ("tactile_left_rgb", "tactile_right_rgb"):
+            if key not in obs_to_save:
+                continue
+            image = obs_to_save[key]
+            if not isinstance(image, np.ndarray) or image.ndim != 3:
+                continue
+            if image.shape[1] == save_width and image.shape[0] == save_height:
+                continue
+            obs_to_save[key] = cv2.resize(
+                image,
+                (save_width, save_height),
+                interpolation=cv2.INTER_AREA,
+            )
+
+    return obs_to_save
+
+
+def _save_pngs(
+    recorded_file: Path,
+    obs_to_save: Dict[str, np.ndarray],
+    save_png=False,
+    save_tactile_png=False,
+    use_tactile=True,
+) -> None:
     # save rgb image as png
     if save_png:
         if "base_camera_rgb" in obs_to_save:
@@ -462,7 +527,7 @@ def save_frame(
                 rgbi = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
                 fn = str(recorded_file)[:-4] + f"-base.png"
                 cv2.imwrite(fn, rgbi)
-    
+
     # save tactile images as png (only if use_tactile is True)
     if save_tactile_png and use_tactile:
         # Save left tactile sensor image
@@ -486,6 +551,182 @@ def save_frame(
                 cv2.imwrite(fn_right, tactile_right_bgr)
 
 
+def save_frame(
+    folder: Path,
+    timestamp: datetime.datetime,
+    obs: Dict[str, np.ndarray],
+    action: np.ndarray,
+    activated=True,
+    save_png=False,
+    save_tactile_png=False,
+    use_tactile=True,
+    save_raw_images_only=False,
+    save_base_size: tuple[int, int] | None = None,
+    save_tactile_size: tuple[int, int] | None = None,
+) -> None:
+    obs_to_save = _prepare_obs_to_save(
+        obs,
+        action,
+        activated=activated,
+        save_raw_images_only=save_raw_images_only,
+        save_base_size=save_base_size,
+        save_tactile_size=save_tactile_size,
+    )
+
+    recorded_file = folder / (
+        timestamp.isoformat().replace(":", "-").replace(".", "-") + ".pkl"
+    )
+    with open(recorded_file, "wb") as f:
+        pickle.dump(obs_to_save, f)
+
+    _save_pngs(
+        recorded_file,
+        obs_to_save,
+        save_png=save_png,
+        save_tactile_png=save_tactile_png,
+        use_tactile=use_tactile,
+    )
+
+
+class H5TrajectoryWriter:
+    def __init__(
+        self,
+        file_path: Path,
+        video_fps: float,
+        compression: str = "gzip",
+        compression_level: int = 4,
+    ):
+        try:
+            import h5py
+        except ImportError as exc:
+            raise RuntimeError(
+                "Saving to H5 requires the 'h5py' package in the active Python environment."
+            ) from exc
+
+        self._h5py = h5py
+        self.file_path = file_path
+        self.file = h5py.File(file_path, "w")
+        self.frames_group = self.file.create_group("frames")
+        self.datasets = {}
+        self.frame_count = 0
+        self.compression = compression
+        self.compression_level = compression_level
+        self.video_fps = float(video_fps)
+        self.timestamps = self.file.create_dataset(
+            "timestamps",
+            shape=(0,),
+            maxshape=(None,),
+            chunks=(256,),
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+        self.videos_group = self.file.create_group("videos")
+        self.video_tempfiles: dict[str, tempfile.NamedTemporaryFile] = {}
+        self.video_writers: dict[str, cv2.VideoWriter] = {}
+        self.file.attrs["video_fps"] = self.video_fps
+
+    @staticmethod
+    def _is_video_key(key: str, array: np.ndarray) -> bool:
+        return key.endswith("_rgb") and array.ndim == 3 and array.dtype == np.uint8
+
+    def _append_video_frame(self, key: str, array: np.ndarray) -> None:
+        writer = self.video_writers.get(key)
+        if writer is None:
+            temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+            temp_file.close()
+            self.video_tempfiles[key] = temp_file
+            height, width = array.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(temp_file.name, fourcc, self.video_fps, (width, height))
+            if not writer.isOpened():
+                raise RuntimeError(f"Failed to open MP4 writer for key '{key}'")
+            self.video_writers[key] = writer
+            video_ds = self.videos_group.create_dataset(
+                key,
+                shape=(0,),
+                maxshape=(None,),
+                dtype=np.uint8,
+            )
+            video_ds.attrs["fps"] = self.video_fps
+            video_ds.attrs["height"] = height
+            video_ds.attrs["width"] = width
+            video_ds.attrs["channels"] = array.shape[2]
+            video_ds.attrs["codec"] = "mp4v"
+
+        writer.write(cv2.cvtColor(array, cv2.COLOR_RGB2BGR))
+
+    def _create_dataset(self, key: str, array: np.ndarray):
+        dataset_shape = (0,) + array.shape
+        maxshape = (None,) + array.shape
+        chunks = (1,) + array.shape if array.ndim > 0 else (256,)
+        kwargs = {
+            "shape": dataset_shape,
+            "maxshape": maxshape,
+            "dtype": array.dtype,
+            "chunks": chunks,
+        }
+        if array.dtype.kind not in {"U", "S", "O"}:
+            kwargs["compression"] = self.compression
+            kwargs["compression_opts"] = self.compression_level
+        self.datasets[key] = self.frames_group.create_dataset(key, **kwargs)
+
+    def append(
+        self,
+        timestamp: datetime.datetime,
+        obs: Dict[str, np.ndarray],
+        action: np.ndarray,
+        activated=True,
+        save_raw_images_only=False,
+        save_base_size: tuple[int, int] | None = None,
+        save_tactile_size: tuple[int, int] | None = None,
+    ) -> Dict[str, np.ndarray]:
+        obs_to_save = _prepare_obs_to_save(
+            obs,
+            action,
+            activated=activated,
+            save_raw_images_only=save_raw_images_only,
+            save_base_size=save_base_size,
+            save_tactile_size=save_tactile_size,
+        )
+
+        for key, value in obs_to_save.items():
+            array = np.asarray(value)
+            if self._is_video_key(key, array):
+                self._append_video_frame(key, array)
+                continue
+            if key not in self.datasets:
+                self._create_dataset(key, array)
+            dataset = self.datasets[key]
+            if dataset.shape[1:] != array.shape or dataset.dtype != array.dtype:
+                raise ValueError(
+                    f"Inconsistent shape/dtype for key '{key}': "
+                    f"expected shape {dataset.shape[1:]}, dtype {dataset.dtype}; "
+                    f"got shape {array.shape}, dtype {array.dtype}"
+                )
+            dataset.resize(self.frame_count + 1, axis=0)
+            dataset[self.frame_count] = array
+
+        self.timestamps.resize(self.frame_count + 1, axis=0)
+        self.timestamps[self.frame_count] = timestamp.isoformat()
+        self.frame_count += 1
+        self.file.attrs["frame_count"] = self.frame_count
+        return obs_to_save
+
+    def close(self):
+        if getattr(self, "file", None) is not None:
+            for key, writer in self.video_writers.items():
+                writer.release()
+                temp_file = self.video_tempfiles[key]
+                with open(temp_file.name, "rb") as f:
+                    video_bytes = np.frombuffer(f.read(), dtype=np.uint8)
+                dataset = self.videos_group[key]
+                dataset.resize((video_bytes.shape[0],))
+                dataset[...] = video_bytes
+                os.unlink(temp_file.name)
+            self.file.flush()
+            self.file.close()
+            self.file = None
+
+
 @dataclass
 class Args:
     robot_port: int = 6000
@@ -494,20 +735,26 @@ class Args:
     tactile_left_camera_id: str = "left"  # v4l/by-path or int ID (supports: "left", "2", "/dev/v4l/by-path/...")
     tactile_right_camera_id: str = "right"  # v4l/by-path or int ID (supports: "right", "4", "/dev/v4l/by-path/...")
     hostname: str = "127.0.0.1"
-    hz: int = 50
+    hz: int = 10
     show_camera_view: bool = True
     agent: str = "quest"
     robot_type: str = "ur5"
     save_data: bool = False
-    save_depth: bool = True 
+    save_depth: bool = False
     save_png: bool = False
     use_tactile: bool = True  # whether to use tactile sensors
-    save_tactile_png: bool = True  # save tactile images as PNG
+    save_tactile_png: bool = False  # save tactile images as PNG
+    save_raw_images_only: bool = True  # keep robot state/action, but only raw RGB images
+    save_format: str = "h5"  # "h5" for one file per trajectory, "pkl" for one file per frame
     realsense_width: int = 640  # RealSense camera resolution width
     realsense_height: int = 480  # RealSense camera resolution height
     realsense_fps: int = 30  # RealSense camera FPS
+    save_base_width: int = 320  # Saved base image width
+    save_base_height: int = 240  # Saved base image height
     tactile_width: int = 640  # Tactile camera resolution width
     tactile_height: int = 480  # Tactile camera resolution height
+    save_tactile_width: int = 320  # Saved tactile image width
+    save_tactile_height: int = 240  # Saved tactile image height
     enable_marker_tracking: bool = True
     marker_tracking_show_view: bool = True
     marker_tracking_reset_on_loss: bool = True
@@ -761,6 +1008,7 @@ def main(args):
 
     start_time = time.time()
 
+    trajectory_writer = None
     if args.save_data:
         time_str = datetime.datetime.now().strftime("%m%d_%H%M%S")
         # if args.agent.startswith("dp"):
@@ -779,6 +1027,16 @@ def main(args):
         save_path = Path(args.data_dir).expanduser() / time_str
         save_path.mkdir(parents=True, exist_ok=True)
         print(f"Saving to {save_path}")
+        if args.save_format == "h5":
+            trajectory_writer = H5TrajectoryWriter(
+                save_path / "trajectory.h5",
+                video_fps=args.hz,
+            )
+            print(f"Trajectory file: {save_path / 'trajectory.h5'}")
+        elif args.save_format != "pkl":
+            raise ValueError(
+                f"Invalid save_format: {args.save_format}. Expected 'h5' or 'pkl'."
+            )
 
     is_first_frame = True
     try:
@@ -886,16 +1144,48 @@ def main(args):
                 if is_first_frame:
                     is_first_frame = False
                 else:
-                    save_frame(
-                        save_path,
-                        dt,
-                        obs,
-                        action,
-                        # activated=agent.trigger_state,
-                        save_png=args.save_png,
-                        save_tactile_png=args.save_tactile_png,
-                        use_tactile=args.use_tactile,
-                    )
+                    if args.save_format == "h5":
+                        obs_to_save = trajectory_writer.append(
+                            dt,
+                            obs,
+                            action,
+                            save_raw_images_only=args.save_raw_images_only,
+                            save_base_size=(
+                                args.save_base_width,
+                                args.save_base_height,
+                            ),
+                            save_tactile_size=(
+                                args.save_tactile_width,
+                                args.save_tactile_height,
+                            ),
+                        )
+                        _save_pngs(
+                            save_path / f"{dt.isoformat().replace(':', '-').replace('.', '-')}.h5",
+                            obs_to_save,
+                            save_png=args.save_png,
+                            save_tactile_png=args.save_tactile_png,
+                            use_tactile=args.use_tactile,
+                        )
+                    else:
+                        save_frame(
+                            save_path,
+                            dt,
+                            obs,
+                            action,
+                            # activated=agent.trigger_state,
+                            save_png=args.save_png,
+                            save_tactile_png=args.save_tactile_png,
+                            use_tactile=args.use_tactile,
+                            save_raw_images_only=args.save_raw_images_only,
+                            save_base_size=(
+                                args.save_base_width,
+                                args.save_base_height,
+                            ),
+                            save_tactile_size=(
+                                args.save_tactile_width,
+                                args.save_tactile_height,
+                            ),
+                        )
 
             # if args.agent.endswith("_eef"):
             #     obs = env.step_eef(action)
@@ -943,6 +1233,9 @@ def main(args):
         #             f.write(f"{step}: {freq}\n")
         # else:
         print("Done")
+
+        if trajectory_writer is not None:
+            trajectory_writer.close()
 
         if haptics_sender is not None:
             haptics_sender.stop()
