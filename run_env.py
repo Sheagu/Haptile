@@ -4,6 +4,7 @@ import pickle
 import socket
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
@@ -35,7 +36,7 @@ trigger_state = {"r": False,"l":False}
 # Change these paths to match your actual v4l/by-path devices
 TACTILE_CAM_PORTS = {
     "left": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:1.3.4:1.0-video-index0",
-    "right": "/dev/v4l/by-path/pci-0000:80:14.0-usb-0:2:1.0-video-index0",  # Update with your actual by-path
+    "right": "/dev/v4l/by-path/pci-0000:80:14.0-usbv2-0:5.4:1.0-video-index0",  # Update with your actual by-path
     # Fallback to int IDs if needed
     "2": 2,
     "4": 4,
@@ -444,8 +445,6 @@ def _prepare_obs_to_save(
     if save_raw_images_only:
         filtered_obs = {}
         for key, value in obs_to_save.items():
-            if key.endswith("_depth"):
-                continue
             if key.endswith("_marker_tracking"):
                 continue
             if key.endswith("_raw_rgb"):
@@ -589,6 +588,9 @@ def save_frame(
 
 
 class H5TrajectoryWriter:
+    DEPTH_DISPLAY_MIN_MM = 200
+    DEPTH_DISPLAY_MAX_MM = 1500
+
     def __init__(
         self,
         file_path: Path,
@@ -622,13 +624,74 @@ class H5TrajectoryWriter:
         self.videos_group = self.file.create_group("videos")
         self.video_tempfiles: dict[str, tempfile.NamedTemporaryFile] = {}
         self.video_writers: dict[str, cv2.VideoWriter] = {}
+        self.video_source_kinds: dict[str, str] = {}
         self.file.attrs["video_fps"] = self.video_fps
 
     @staticmethod
-    def _is_video_key(key: str, array: np.ndarray) -> bool:
-        return key.endswith("_rgb") and array.ndim == 3 and array.dtype == np.uint8
+    def _pack_depth_frame(array: np.ndarray) -> tuple[np.ndarray, dict[str, str]]:
+        if array.dtype == np.uint16:
+            depth_mm = array.astype(np.float32)
+        elif array.dtype == np.uint8:
+            depth_mm = array.astype(np.float32)
+        else:
+            raise ValueError(f"Unsupported depth dtype for video export: {array.dtype}")
 
-    def _append_video_frame(self, key: str, array: np.ndarray) -> None:
+        valid = depth_mm > 0
+        depth_clipped = np.clip(
+            depth_mm,
+            H5TrajectoryWriter.DEPTH_DISPLAY_MIN_MM,
+            H5TrajectoryWriter.DEPTH_DISPLAY_MAX_MM,
+        )
+        depth_scaled = (
+            (depth_clipped - H5TrajectoryWriter.DEPTH_DISPLAY_MIN_MM)
+            * 255.0
+            / (
+                H5TrajectoryWriter.DEPTH_DISPLAY_MAX_MM
+                - H5TrajectoryWriter.DEPTH_DISPLAY_MIN_MM
+            )
+        )
+        depth_uint8 = np.zeros(array.shape, dtype=np.uint8)
+        depth_uint8[valid] = depth_scaled[valid].astype(np.uint8)
+        depth_rgb = np.repeat(depth_uint8[..., None], 3, axis=-1)
+        return (
+            depth_rgb,
+            {
+                "source_kind": "depth",
+                "source_dtype": str(array.dtype),
+                "encoding": "depth_uint8_gray",
+                "depth_min_mm": H5TrajectoryWriter.DEPTH_DISPLAY_MIN_MM,
+                "depth_max_mm": H5TrajectoryWriter.DEPTH_DISPLAY_MAX_MM,
+            },
+        )
+
+    @staticmethod
+    def _iter_video_streams(key: str, array: np.ndarray):
+        if key.endswith("_rgb") and array.dtype == np.uint8:
+            if array.ndim == 3:
+                yield key, array, {"source_kind": "rgb", "source_dtype": "uint8"}
+                return
+            if array.ndim == 4 and array.shape[-1] == 3:
+                for idx, frame in enumerate(array):
+                    yield (
+                        f"{key}_{idx}",
+                        frame,
+                        {"source_kind": "rgb", "source_dtype": "uint8", "source_index": idx},
+                    )
+            return
+
+        if key.endswith("_depth"):
+            if array.ndim == 2:
+                packed, attrs = H5TrajectoryWriter._pack_depth_frame(array)
+                yield key, packed, attrs
+                return
+            if array.ndim == 3:
+                for idx, frame in enumerate(array):
+                    packed, attrs = H5TrajectoryWriter._pack_depth_frame(frame)
+                    attrs = dict(attrs)
+                    attrs["source_index"] = idx
+                    yield f"{key}_{idx}", packed, attrs
+
+    def _append_video_frame(self, key: str, array: np.ndarray, extra_attrs: dict | None = None) -> None:
         writer = self.video_writers.get(key)
         if writer is None:
             temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
@@ -651,10 +714,31 @@ class H5TrajectoryWriter:
             video_ds.attrs["width"] = width
             video_ds.attrs["channels"] = array.shape[2]
             video_ds.attrs["codec"] = "mp4v"
+            if extra_attrs is not None:
+                for attr_key, attr_value in extra_attrs.items():
+                    video_ds.attrs[attr_key] = attr_value
+            self.video_source_kinds[key] = (
+                str(extra_attrs.get("source_kind"))
+                if extra_attrs is not None and "source_kind" in extra_attrs
+                else "rgb"
+            )
 
-        writer.write(cv2.cvtColor(array, cv2.COLOR_RGB2BGR))
+        if self.video_source_kinds.get(key) == "depth":
+            writer.write(array)
+        else:
+            writer.write(cv2.cvtColor(array, cv2.COLOR_RGB2BGR))
 
     def _create_dataset(self, key: str, array: np.ndarray):
+        if array.dtype.kind in {"U", "S", "O"} and array.ndim == 0:
+            kwargs = {
+                "shape": (0,),
+                "maxshape": (None,),
+                "dtype": self._h5py.string_dtype(encoding="utf-8"),
+                "chunks": (256,),
+            }
+            self.datasets[key] = self.frames_group.create_dataset(key, **kwargs)
+            return
+
         dataset_shape = (0,) + array.shape
         maxshape = (None,) + array.shape
         chunks = (1,) + array.shape if array.ndim > 0 else (256,)
@@ -690,12 +774,24 @@ class H5TrajectoryWriter:
 
         for key, value in obs_to_save.items():
             array = np.asarray(value)
-            if self._is_video_key(key, array):
-                self._append_video_frame(key, array)
+            video_streams = list(self._iter_video_streams(key, array))
+            if video_streams:
+                for video_key, video_array, video_attrs in video_streams:
+                    self._append_video_frame(video_key, video_array, video_attrs)
                 continue
             if key not in self.datasets:
                 self._create_dataset(key, array)
             dataset = self.datasets[key]
+            if dataset.dtype.metadata is not None and dataset.dtype.metadata.get("vlen") is str:
+                if array.ndim != 0:
+                    raise ValueError(
+                        f"Inconsistent shape/dtype for key '{key}': "
+                        f"expected scalar string; got shape {array.shape}, dtype {array.dtype}"
+                    )
+                dataset.resize(self.frame_count + 1, axis=0)
+                item = value.decode("utf-8") if isinstance(value, (bytes, np.bytes_)) else str(value)
+                dataset[self.frame_count] = item
+                continue
             if dataset.shape[1:] != array.shape or dataset.dtype != array.dtype:
                 raise ValueError(
                     f"Inconsistent shape/dtype for key '{key}': "
@@ -735,12 +831,12 @@ class Args:
     tactile_left_camera_id: str = "left"  # v4l/by-path or int ID (supports: "left", "2", "/dev/v4l/by-path/...")
     tactile_right_camera_id: str = "right"  # v4l/by-path or int ID (supports: "right", "4", "/dev/v4l/by-path/...")
     hostname: str = "127.0.0.1"
-    hz: int = 10
+    hz: int = 15
     show_camera_view: bool = True
     agent: str = "quest"
     robot_type: str = "ur5"
     save_data: bool = False
-    save_depth: bool = False
+    save_depth: bool = True
     save_png: bool = False
     use_tactile: bool = True  # whether to use tactile sensors
     save_tactile_png: bool = False  # save tactile images as PNG
@@ -1125,20 +1221,39 @@ def main(args):
                     marker_motion["tactile_left"],
                     marker_motion["tactile_right"],
                 )
+                motion_span = max(
+                    haptics_sender.config.max_motion - haptics_sender.config.min_motion,
+                    1e-6,
+                )
+                normalized_max_motion = clamp01(
+                    (max_motion - haptics_sender.config.min_motion) / motion_span
+                )
                 haptics_sender.update(
                     left_motion=0.0,
-                right_motion=max_motion,
-                enabled=(not haptics_sender.config.active_only)
-                or getattr(agent, "control_active", True),
+                    right_motion=max_motion,
+                    enabled=(not haptics_sender.config.active_only)
+                    or getattr(agent, "control_active", True),
                 )
                 current_haptics_state = haptics_sender.current_state()
+                obs["haptics_state"] = np.bytes_(current_haptics_state)
+                obs["haptics_max_marker_motion"] = np.array(max_motion, dtype=np.float32)
+                obs["haptics_normalized_marker_motion"] = np.array(
+                    normalized_max_motion, dtype=np.float32
+                )
                 if current_haptics_state != prev_haptics_state:
                     print_color(
-                        f"\n[haptics] state: {current_haptics_state}",
+                        "\n"
+                        f"[haptics] state: {current_haptics_state}, "
+                        f"max_marker_motion: {max_motion:.4f}, "
+                        f"normalized: {normalized_max_motion:.4f}",
                         color="magenta",
                         attrs=("bold",),
                     )
                     prev_haptics_state = current_haptics_state
+            else:
+                obs["haptics_state"] = np.bytes_("disabled")
+                obs["haptics_max_marker_motion"] = np.array(0.0, dtype=np.float32)
+                obs["haptics_normalized_marker_motion"] = np.array(0.0, dtype=np.float32)
 
             if args.save_data:
                 if is_first_frame:
@@ -1196,11 +1311,22 @@ def main(args):
             frame_freq.append(ff)
 
             if trigger_state["l"]:
-                print_color("\nTriggered!", color="red", attrs=("bold",))
+                print_color(
+                    "\nStopping because keyboard trigger_state['l'] became True",
+                    color="red",
+                    attrs=("bold",),
+                )
                 break
 
     except KeyboardInterrupt:
         print_color("\nInterrupted!", color="red", attrs=("bold",))
+    except Exception:
+        print_color(
+            "\nrun_env crashed with an exception; traceback follows.",
+            color="red",
+            attrs=("bold",),
+        )
+        traceback.print_exc()
     finally:
         # if "dp" in args.agent:
         #     import glob
