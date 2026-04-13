@@ -1,5 +1,6 @@
 from typing import Dict
 
+import time
 import numpy as np
 import quaternion
 from dm_control import mjcf
@@ -101,9 +102,6 @@ def velocity_ik(physics,
 
   return update_joints
 
-# Amir: adding grip2_state to ensure holding the rightgrip will always increase the angle
-grip2_state = 0
-
 
 class SingleArmQuestAgent(Agent):
     def __init__(
@@ -148,10 +146,11 @@ class SingleArmQuestAgent(Agent):
         self.robot_type = robot_type
         self._verbose = verbose
 
+        self.gripper_angle = 0.0
+        self.last_gripper_update = time.time()
+        self.gripper_speed = 0.5
+
     def act(self, obs: Dict[str, np.ndarray]) -> np.ndarray:
-        # Amir: add grip2_state as a global variables
-        global grip2_state
-        #
         if self.robot_type == "ur5":
             num_dof = 6
         current_qpos = obs["joint_positions"][:num_dof]  # last one dim is the gripper
@@ -190,17 +189,16 @@ class SingleArmQuestAgent(Agent):
             )
 
         if self.eef_control_mode == 0:
-            # Amir: adding grip1_state to compare between instances
-            grip1_state = (button_data[grip_key][0])
-            new_gripper_angle = [max(grip2_state, grip1_state) * 100 // 1 / 100]  # gripper angle
-            
-            if _button_pressed(button_data, close_grip_key):  # if close grip button is pressed, set gripper angle to 1
-                new_gripper_angle = [0.0]
-                grip2_state = 0.0
-            else:
-                grip2_state = new_gripper_angle[0]
-            # 
-            # print(new_gripper_angle)
+            now = time.time()
+            dt = max(now - self.last_gripper_update, 0.0)
+            self.last_gripper_update = now
+
+            if _button_pressed(button_data, grip_key):
+                self.gripper_angle = min(self.gripper_angle + self.gripper_speed * dt, 1.0)
+            elif _button_pressed(button_data, close_grip_key):
+                self.gripper_angle = max(self.gripper_angle - self.gripper_speed * dt, 0.0)
+
+            new_gripper_angle = [round(self.gripper_angle, 3)]
         elif self.eef_control_mode == 1:
             new_gripper_angle = [button_data[grip_key][0]] * 6  # [0, 1]
         else:
