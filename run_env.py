@@ -406,12 +406,12 @@ def _update_marker_tracking(
 
     delta_norms = np.linalg.norm(deltas, axis=1)
     delta_norms = np.clip(delta_norms - motion_deadband, 0.0, None)
-    mean_motion = float(delta_norms.mean()) if len(delta_norms) > 0 else 0.0
-    if mean_motion < state.motion_ema:
+    sum_motion = float(delta_norms.sum()) if len(delta_norms) > 0 else 0.0
+    if sum_motion < state.motion_ema:
         alpha = float(np.clip(motion_release_smoothing, 0.0, 1.0))
     else:
         alpha = float(np.clip(motion_smoothing, 0.0, 1.0))
-    state.motion_ema = (1.0 - alpha) * state.motion_ema + alpha * mean_motion
+    state.motion_ema = (1.0 - alpha) * state.motion_ema + alpha * sum_motion
     overlay = plot_marker_delta(
         frame,
         tracked_points,
@@ -873,12 +873,12 @@ class Args:
     marker_motion_compensate_global_drift: bool = True
     headset_haptics_host: str = "192.168.1.126"
     headset_haptics_port: int = 9000
-    haptics_min_motion: float = 0.2
-    haptics_max_motion: float = 2.0
+    haptics_min_motion: float = 0.0
+    haptics_max_motion: float = 20.0
     haptics_discrete_levels: bool = True
-    haptics_soft_threshold: float = 0.25
-    haptics_mild_threshold: float = 0.5
-    haptics_firm_threshold: float = 0.75
+    haptics_soft_threshold: float = 0.1 #0.02 0.25
+    haptics_mild_threshold: float = 0.3 #0.05  0.5
+    haptics_firm_threshold: float = 0.4#0.09 0.75
     haptics_soft_force: float = 0.1
     haptics_mild_force: float = 0.4
     haptics_firm_force: float = 1.0
@@ -1217,7 +1217,7 @@ def main(args):
                             cv2.waitKey(1)
 
             if haptics_sender is not None:
-                max_motion = max(
+                sum_motion = max(
                     marker_motion["tactile_left"],
                     marker_motion["tactile_right"],
                 )
@@ -1225,35 +1225,35 @@ def main(args):
                     haptics_sender.config.max_motion - haptics_sender.config.min_motion,
                     1e-6,
                 )
-                normalized_max_motion = clamp01(
-                    (max_motion - haptics_sender.config.min_motion) / motion_span
+                normalized_sum_motion = clamp01(
+                    (sum_motion - haptics_sender.config.min_motion) / motion_span
                 )
                 haptics_sender.update(
                     left_motion=0.0,
-                    right_motion=max_motion,
+                    right_motion=sum_motion,
                     enabled=(not haptics_sender.config.active_only)
                     or getattr(agent, "control_active", True),
                 )
                 current_haptics_state = haptics_sender.current_state()
                 obs["haptics_state"] = np.bytes_(current_haptics_state)
-                obs["haptics_max_marker_motion"] = np.array(max_motion, dtype=np.float32)
-                obs["haptics_normalized_marker_motion"] = np.array(
-                    normalized_max_motion, dtype=np.float32
+                obs["haptics_sum_marker_motion"] = np.array(sum_motion, dtype=np.float32)
+                obs["haptics_normalized_sum_marker_motion"] = np.array(
+                    normalized_sum_motion, dtype=np.float32
                 )
                 if current_haptics_state != prev_haptics_state:
                     print_color(
                         "\n"
                         f"[haptics] state: {current_haptics_state}, "
-                        f"max_marker_motion: {max_motion:.4f}, "
-                        f"normalized: {normalized_max_motion:.4f}",
+                        f"sum_marker_motion: {sum_motion:.4f}, "
+                        f"normalized_sum: {normalized_sum_motion:.4f}",
                         color="magenta",
                         attrs=("bold",),
                     )
                     prev_haptics_state = current_haptics_state
             else:
                 obs["haptics_state"] = np.bytes_("disabled")
-                obs["haptics_max_marker_motion"] = np.array(0.0, dtype=np.float32)
-                obs["haptics_normalized_marker_motion"] = np.array(0.0, dtype=np.float32)
+                obs["haptics_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
+                obs["haptics_normalized_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
 
             if args.save_data:
                 if is_first_frame:
