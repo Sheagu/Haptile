@@ -3,6 +3,8 @@ Project page: https://github.com/Zhuochenn/teleUR?tab=readme-ov-file
 
 Pull: tactile branch, not main branch
 
+0. IMPORTANT: Please use conda environment `tele` to run the code
+
 1. Realsense camera setting: Connect realsense camera to the laptop. Refer to Fig.1 for the correct port to use. Using a different port will result in input reading failure. (Out of date info: Run `realsense_show.py` to see the working camera ports, and run `markerless.py` to check the camera input from a specific port)
 2. Tactile sensor camera setting: Connect the cameras to the laptop. Refer to Fig.1 and Fig. 2 for the correct ports to use. Using different ports will result in input reading failure. (Out of date info: Run `realsense_show.py` to see the working camera ports, and run `markerless.py` to check the camera input from a specific port)
 

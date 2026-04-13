@@ -25,6 +25,11 @@ def _button_pressed(button_data: Dict, key: str) -> bool:
         return bool(value[0])
     return bool(value)
 
+
+def _tcp_pose_from_pos_rot(pos: np.ndarray, rot_mat: np.ndarray) -> np.ndarray:
+    rotvec = R.from_matrix(rot_mat).as_rotvec()
+    return np.concatenate([np.asarray(pos, dtype=np.float64), rotvec.astype(np.float64)])
+
 def inverse_angle(mat,direction=""):
     rot = R.from_matrix(mat)
     angles = rot.as_euler('zyx', degrees=False)  
@@ -149,6 +154,8 @@ class SingleArmQuestAgent(Agent):
         self.gripper_angle = 0.0
         self.last_gripper_update = time.time()
         self.gripper_speed = 0.5
+        self.last_target_tcp_pose = None
+        self.last_command_joint_state = None
 
     def act(self, obs: Dict[str, np.ndarray]) -> np.ndarray:
         if self.robot_type == "ur5":
@@ -162,6 +169,8 @@ class SingleArmQuestAgent(Agent):
             self.physics.named.data.site_xmat["attachment_site"]
         ).reshape(3, 3)
         ee_pos_mj = np.array(self.physics.named.data.site_xpos["attachment_site"])
+        current_ee_rot_ur = mj2ur[:3, :3] @ ee_rot_mj
+        current_ee_pos_ur = apply_transfer(mj2ur, ee_pos_mj)
         # if self.which_hand == "l":
         #     pose_key = "l"
         #     trigger_key = "leftTrig"
@@ -184,9 +193,14 @@ class SingleArmQuestAgent(Agent):
         ) = self.oculus_reader.get_transformations_and_buttons()
         if len(pose_data) == 0 or len(button_data) == 0:
             print("no data, quest not yet ready")
-            return np.concatenate(
+            command = np.concatenate(
                 [current_qpos, obs["joint_positions"][num_dof:] * 0.0]
             )
+            self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                current_ee_pos_ur, current_ee_rot_ur
+            )
+            self.last_command_joint_state = command.copy()
+            return command
 
         if self.eef_control_mode == 0:
             now = time.time()
@@ -234,6 +248,10 @@ class SingleArmQuestAgent(Agent):
         arm_not_move_return = np.concatenate([current_qpos, new_gripper_angle])
         if len(pose_data) == 0:
             print("no data, quest not yet ready")
+            self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                current_ee_pos_ur, current_ee_rot_ur
+            )
+            self.last_command_joint_state = arm_not_move_return.copy()
             return arm_not_move_return
 
         global trigger_state
@@ -318,8 +336,16 @@ class SingleArmQuestAgent(Agent):
                     new_qpos = ik_result.qpos[:num_dof]
                 else:
                     print("ik failed, using the original qpos")
+                    self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                        current_ee_pos_ur, current_ee_rot_ur
+                    )
+                    self.last_command_joint_state = arm_not_move_return.copy()
                     return arm_not_move_return
                 command = np.concatenate([new_qpos, new_gripper_angle])
+                self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                    next_ee_pos_ur, next_ee_rot_ur
+                )
+                self.last_command_joint_state = command.copy()
                 return command
 
             else:  # last state is not in active
@@ -327,8 +353,12 @@ class SingleArmQuestAgent(Agent):
                 if self._verbose:
                     print("control activated!")
                 self.reference_quest_pose = pose_data[pose_key]
-                self.reference_ee_rot_ur = mj2ur[:3, :3] @ ee_rot_mj
-                self.reference_ee_pos_ur = apply_transfer(mj2ur, ee_pos_mj)
+                self.reference_ee_rot_ur = current_ee_rot_ur
+                self.reference_ee_pos_ur = current_ee_pos_ur
+                self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                    current_ee_pos_ur, current_ee_rot_ur
+                )
+                self.last_command_joint_state = arm_not_move_return.copy()
                 return arm_not_move_return
             
         else:
@@ -336,6 +366,10 @@ class SingleArmQuestAgent(Agent):
                 print("deactive control")
             self.control_active = False
             self.reference_quest_pose = None
+            self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                current_ee_pos_ur, current_ee_rot_ur
+            )
+            self.last_command_joint_state = arm_not_move_return.copy()
             return arm_not_move_return
 
 
