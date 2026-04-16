@@ -5,6 +5,7 @@ import os
 import pickle
 import sys
 import time
+import hashlib
 
 mypath = os.path.dirname(os.path.realpath(__file__))
 
@@ -464,7 +465,7 @@ class Agent:
         init_data = {}
         for rt in self.representation_type + ["action"]:
             if rt in IMAGE_KEYS:
-                use_memmap_for_this_key = rt == "img" and memmap_loader_path != ""
+                use_memmap_for_this_key = rt in IMAGE_KEYS and memmap_loader_path != ""
                 if not use_memmap_for_this_key:
                     if store_img_in_memory:
                         image_num = self.image_num if rt == "img" else self.tactile_image_num
@@ -499,6 +500,41 @@ class Agent:
             return f"{memmap_loader_path}-{image_key}"
         return f"{root}-{image_key}{ext}"
 
+    def _open_episode_image_memmaps(self, total_data_points, memmap_loader_path=""):
+        image_memmaps = {}
+        cache_memmap = False
+        required_image_keys = [k for k in IMAGE_KEYS if k in self.representation_type]
+        if memmap_loader_path == "":
+            return image_memmaps, cache_memmap
+
+        for image_key in required_image_keys:
+            image_num = self.image_num if image_key == "img" else self.tactile_image_num
+            image_channel = (
+                self.image_channel
+                if image_key == "img"
+                else self.tactile_image_channel
+            )
+            image_shape = (total_data_points, image_num, image_channel, 240, 320)
+            image_memmap_path = self._get_image_memmap_path(
+                memmap_loader_path, image_key
+            )
+            if os.path.exists(image_memmap_path):
+                image_memmaps[image_key] = np.memmap(
+                    image_memmap_path,
+                    dtype=np.uint16,
+                    mode="r",
+                    shape=image_shape,
+                )
+            else:
+                cache_memmap = True
+                image_memmaps[image_key] = np.memmap(
+                    image_memmap_path,
+                    dtype=np.uint16,
+                    mode="w+",
+                    shape=image_shape,
+                )
+        return image_memmaps, cache_memmap
+
     def get_train_loader(self, batch_size, memmap_loader_path="", eval=False):
         current_epi_dir = self.epi_dir
 
@@ -508,40 +544,16 @@ class Agent:
         has_h5_episode = any(
             os.path.exists(os.path.join(epi, "trajectory.h5")) for epi in current_epi_dir
         )
-        store_img_in_memory = self.load_img or has_h5_episode
+        store_img_in_memory = self.load_img
         train_data = {"data": {}, "meta": {}}
-        image_memmaps = {}
-        cache_memmap = False
-        if memmap_loader_path != "":
-            for image_key in [k for k in IMAGE_KEYS if k in self.representation_type]:
-                image_num = self.image_num if image_key == "img" else self.tactile_image_num
-                image_channel = (
-                    self.image_channel
-                    if image_key == "img"
-                    else self.tactile_image_channel
-                )
-                image_shape = (total_data_points, image_num, image_channel, 240, 320)
-                image_memmap_path = self._get_image_memmap_path(
-                    memmap_loader_path, image_key
-                )
-                if os.path.exists(image_memmap_path):
-                    image_memmaps[image_key] = np.memmap(
-                        image_memmap_path,
-                        dtype=np.uint16,
-                        mode="r",
-                        shape=image_shape,
-                    )
-                    train_data["data"][image_key] = image_memmaps[image_key]
-                else:
-                    cache_memmap = True
-                    image_memmaps[image_key] = np.memmap(
-                        image_memmap_path,
-                        dtype=np.uint16,
-                        mode="w+",
-                        shape=image_shape,
-                    )
+        image_memmaps, cache_memmap = self._open_episode_image_memmaps(
+            total_data_points, memmap_loader_path
+        )
+        for image_key, image_memmap in image_memmaps.items():
+            train_data["data"][image_key] = image_memmap
 
-        if cache_memmap:
+        # H5 trajectories only need image decoding when memmap cache is missing.
+        if has_h5_episode and (memmap_loader_path == "" or cache_memmap):
             store_img_in_memory = True
 
         train_data["data"] = self._get_init_train_data(
@@ -599,22 +611,13 @@ class Agent:
 
         if cache_memmap:
             for image_key in image_memmaps:
-                image_num = self.image_num if image_key == "img" else self.tactile_image_num
-                image_channel = (
-                    self.image_channel
-                    if image_key == "img"
-                    else self.tactile_image_channel
-                )
-                image_shape = (total_data_points, image_num, image_channel, 240, 320)
-                image_memmap_path = self._get_image_memmap_path(
-                    memmap_loader_path, image_key
-                )
-                train_data["data"][image_key] = np.memmap(
-                    image_memmap_path,
+                image_memmaps[image_key] = np.memmap(
+                    self._get_image_memmap_path(memmap_loader_path, image_key),
                     dtype=np.uint16,
                     mode="r",
-                    shape=image_shape,
+                    shape=image_memmaps[image_key].shape,
                 )
+                train_data["data"][image_key] = image_memmaps[image_key]
 
         print("Train data loaded")
         for k, v in train_data["data"].items():
@@ -656,6 +659,7 @@ class Agent:
         eval_freq=10,
         wandb_logger=None,
         memmap_loader_path="",
+        eval_memmap_loader_path="",
         train_path=None,
         test_path=None,
     ):
@@ -684,7 +688,7 @@ class Agent:
             eval_traj = self.epi_dir[-1]
             self.epi_dir.remove(eval_traj)
             print("eval traj:", eval_traj)
-        eval_data = self.get_eval_data(eval_traj)
+        eval_data = self.get_eval_data(eval_traj, eval_memmap_loader_path)
 
         train_loader = self.get_train_loader(batch_size, memmap_loader_path)
         self.policy.set_lr_scheduler(len(train_loader) * epochs)
@@ -707,7 +711,7 @@ class Agent:
         )
 
         self.policy.to_ema()
-        self.eval(eval_traj)
+        self.eval(eval_traj, memmap_loader_path=eval_memmap_loader_path)
 
     def get_train_action(self, data):
         act = self.get_eval_action(data)
@@ -745,15 +749,60 @@ class Agent:
         else:
             return [d["control"] for d in data]
 
-    def get_eval_data(self, data_path):
+    def get_eval_data(self, data_path, memmap_loader_path=""):
+        use_disk_eval_cache = not any(
+            image_key in self.representation_type for image_key in IMAGE_KEYS
+        )
+        if use_disk_eval_cache:
+            cache_key = {
+                "representation_type": tuple(self.representation_type),
+                "camera_indices": tuple(self.camera_indices),
+                "image_channel": self.image_channel,
+                "obs_horizon": self.obs_horizon,
+                "pred_horizon": self.pred_horizon,
+                "action_horizon": self.action_horizon,
+            }
+            cache_name = "dp_eval_cache_" + hashlib.md5(
+                repr(cache_key).encode("utf-8")
+            ).hexdigest()[:12] + ".pkl"
+            cache_path = os.path.join(data_path, cache_name)
+            if os.path.exists(cache_path):
+                print(f"Loading eval cache from {cache_path}")
+                with open(cache_path, "rb") as f:
+                    return pickle.load(f)
+        else:
+            cache_path = None
+
         print("GETTING EVAL DATA", end="\r")
-        data = data_processing.iterate(data_path)
+        total_data_points = data_processing.get_episode_length(data_path)
+        image_memmaps, cache_memmap = self._open_episode_image_memmaps(
+            total_data_points, memmap_loader_path
+        )
+        has_h5_episode = os.path.exists(os.path.join(data_path, "trajectory.h5"))
+        load_eval_images = self.load_img or (
+            has_h5_episode and (memmap_loader_path == "" or cache_memmap)
+        )
+        data = data_processing.iterate(data_path, load_img=load_eval_images)
 
         action = self.get_eval_action(data)
         B = len(data)
 
         print("GETTING EVAL OBSERVATION", end="\r")
-        obs = self.get_observation(data, load_img=True)
+        obs = self.get_observation(data, load_img=load_eval_images or cache_memmap)
+        for image_key, image_memmap in image_memmaps.items():
+            if cache_memmap:
+                image_memmap[:B] = obs[image_key]
+                image_memmap.flush()
+                image_memmaps[image_key] = np.memmap(
+                    self._get_image_memmap_path(memmap_loader_path, image_key),
+                    dtype=np.uint16,
+                    mode="r",
+                    shape=image_memmap.shape,
+                )
+            obs[image_key] = torch.tensor(
+                np.asarray(image_memmaps[image_key][:B]).astype(np.float32),
+                dtype=torch.float32,
+            )
         obs_list = []
 
         for image_key in IMAGE_KEYS:
@@ -762,11 +811,16 @@ class Agent:
                 obs[image_key] = self.eval_transform(obs[image_key])
         for i in range(B):
             obs_list.append({rt: obs[rt][i] for rt in self.representation_type})
-        return obs_list, action
+        eval_data = (obs_list, action)
+        if cache_path is not None:
+            with open(cache_path, "wb") as f:
+                pickle.dump(eval_data, f)
+            print(f"Saved eval cache to {cache_path}")
+        return eval_data
 
-    def eval(self, data_path, save_path=None):
+    def eval(self, data_path, save_path=None, memmap_loader_path=""):
         print("GETTING EVAL DATA")
-        eval_data = self.get_eval_data(data_path)
+        eval_data = self.get_eval_data(data_path, memmap_loader_path)
         obs, action = eval_data
         print("EVALUATING")
         action, mse, norm_mse = self.policy.eval(obs, action)
@@ -1066,22 +1120,46 @@ if __name__ == "__main__":
         if args.use_memmap_cache:
             if args.memmap_loader_path is not None:
                 memmap_loader_path = args.memmap_loader_path
+                if test_path is not None:
+                    _, memmap_name = os.path.split(memmap_loader_path)
+                    eval_memmap_loader_path = os.path.join(test_path, memmap_name)
+                else:
+                    eval_memmap_loader_path = memmap_loader_path
             else:
                 memmap_base_path = train_path if train_path is not None else data_path
                 memmap_loader_path = os.path.join(
                     memmap_base_path, f"{args.camera_indices}-{use_depth}-mem.dat"
                 )
+                eval_memmap_base_path = (
+                    test_path if test_path is not None else memmap_base_path
+                )
+                eval_memmap_loader_path = os.path.join(
+                    eval_memmap_base_path, f"{args.camera_indices}-{use_depth}-mem.dat"
+                )
         else:
             memmap_loader_path = ""
+            eval_memmap_loader_path = ""
 
         print("using memmap loader path:", memmap_loader_path)
+        print("using eval memmap loader path:", eval_memmap_loader_path)
         if args.prepare_cache_only:
             cache_source_path = train_path if train_path is not None else data_path
             print(f"Preparing cache from {cache_source_path}")
             agent.epi_dir = data_processing.get_epi_dir(
                 cache_source_path, traj_type=args.traj_type, prefix=args.prefix
             )
-            agent.get_train_loader(batch_size=args.batch_size, memmap_loader_path=memmap_loader_path)
+            agent.get_train_loader(
+                batch_size=args.batch_size, memmap_loader_path=memmap_loader_path
+            )
+            if test_path is not None:
+                eval_trajs = data_processing.get_epi_dir(
+                    test_path, traj_type=args.traj_type, prefix=args.prefix
+                )
+                assert len(eval_trajs) == 1
+                print(f"Preparing eval cache from {eval_trajs[0]}")
+                agent.get_eval_data(
+                    eval_trajs[0], memmap_loader_path=eval_memmap_loader_path
+                )
             print("Cache preparation finished.")
             sys.exit(0)
 
@@ -1098,6 +1176,7 @@ if __name__ == "__main__":
             train_path=train_path,
             test_path=test_path,
             memmap_loader_path=memmap_loader_path,
+            eval_memmap_loader_path=eval_memmap_loader_path,
         )
 
     else:
