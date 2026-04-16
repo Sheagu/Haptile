@@ -70,23 +70,25 @@ def main(args):
         camera_dict=camera_clients,
     )
     if args.agent.startswith("dp"):
-        from agents.dp_agent import BimanualDPAgent
+        from agents.dp_agent import BimanualDPAgent, get_reset_joints
 
         agent = BimanualDPAgent(ckpt_path=args.dp_ckpt_path)
     else:
         raise ValueError(f"Invalid agent name: {args.agent}")
 
-    if args.hand_type == "ability":
+    curr_joints = env.get_real_obs()["joint_positions"]
+    if curr_joints.shape[0] == 7:
+        reset_joints = get_reset_joints(ur_eef=args.agent.endswith("_eef"))
+    elif args.hand_type == "ability":
         arm_joints_left = [-80, -140, -80, -85, -10, 80]
         arm_joints_right = [-270, -30, 70, -85, 10, 0]
         hand_joints = [0, 0, 0, 0, 0.5, 0.5]
+        reset_joints_left = np.concatenate([np.deg2rad(arm_joints_left), hand_joints])
+        reset_joints_right = np.concatenate([np.deg2rad(arm_joints_right), hand_joints])
+        reset_joints = np.concatenate([reset_joints_left, reset_joints_right])
     else:
         raise ValueError(f"Invalid hand type: {args.hand_type}")
-    reset_joints_left = np.concatenate([np.deg2rad(arm_joints_left), hand_joints])
-    reset_joints_right = np.concatenate([np.deg2rad(arm_joints_right), hand_joints])
-    reset_joints = np.concatenate([reset_joints_left, reset_joints_right])
-    curr_joints = env.get_real_obs()["joint_positions"]
-    if args.hand_type == "ability":
+    if curr_joints.shape[0] == 24 and args.hand_type == "ability":
         curr_joints[6:12] = hand_joints
         curr_joints[18:] = hand_joints
     print("Current joints:", curr_joints)
@@ -103,8 +105,12 @@ def main(args):
     joints = obs["joint_positions"]
 
     # if args.hand_type == "ability":
-    ur_idx = list(range(0, 6)) + list(range(12, 18))
-    hand_idx = list(range(6, 12)) + list(range(18, 24))
+    if joints.shape[0] == 7:
+        ur_idx = list(range(6))
+        hand_idx = None
+    else:
+        ur_idx = list(range(0, 6)) + list(range(12, 18))
+        hand_idx = list(range(6, 12)) + list(range(18, 24))
 
     if args.safe:
         max_joint_delta = 0.5

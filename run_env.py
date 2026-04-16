@@ -979,21 +979,24 @@ def main(args):
     if args.agent == "quest":
         # Use the Quest agent variant with A-button gripper control.
         from agents.quest_agent_Akey import SingleArmQuestAgent
+
         agent = SingleArmQuestAgent(robot_type=args.robot_type, which_hand="r")
         print("Quest agent created")
-    # elif args.agent in ["dp", "dp_eef"]:
-    #     if args.use_jit_agent:
-    #         from agents.dp_agent_zmq import BimanualDPAgent
-    #         agent = BimanualDPAgent(
-    #             ckpt_path=args.dp_ckpt_path,
-    #             port=args.inference_agent_port,
-    #             host=args.inference_agent_host,
-    #             temporal_ensemble_act_tau=args.temporal_ensemble_act_tau,
-    #             temporal_ensemble_mode=args.temporal_ensemble_mode,
-    #         )
-    #     else:
-    #         from agents.dp_agent import BimanualDPAgent
-    #         agent = BimanualDPAgent(ckpt_path=args.dp_ckpt_path)
+    elif args.agent in ["dp", "dp_eef"]:
+        if args.use_jit_agent:
+            from agents.dp_agent_zmq import BimanualDPAgent
+
+            agent = BimanualDPAgent(
+                ckpt_path=args.dp_ckpt_path,
+                port=args.inference_agent_port,
+                host=args.inference_agent_host,
+                temporal_ensemble_act_tau=args.temporal_ensemble_act_tau,
+                temporal_ensemble_mode=args.temporal_ensemble_mode,
+            )
+        else:
+            from agents.dp_agent import BimanualDPAgent
+
+            agent = BimanualDPAgent(ckpt_path=args.dp_ckpt_path)
     else:
         raise ValueError(f"Invalid agent name : {args.agent}")
 
@@ -1002,17 +1005,11 @@ def main(args):
         #To-do   90
         # reset_joints = np.deg2rad([-82, -102, -70, -98, 86, 90, 0])
         reset_joints = np.deg2rad([-87, -88, -112, -67, 90, 0, 0])
-    # else:
-    #     # using Ability hands
-    #     arm_joints_left = [-80, -140, -80, -85, -10, 80]
-    #     arm_joints_right = [-270, -30, 70, -85, 10, 0]
-    #     hand_joints = [0, 0, 0, 0, 0.5, 0.5]
-    #     reset_joints_left = np.concatenate([np.deg2rad(arm_joints_left), hand_joints])
-    #     reset_joints_right = np.concatenate([np.deg2rad(arm_joints_right), hand_joints])
-    # reset_joints = np.concatenate([reset_joints_left, reset_joints_right])
+    else:
+        from agents.dp_agent import get_reset_joints
+
+        reset_joints = get_reset_joints(ur_eef=args.agent.endswith("_eef"))
     curr_joints = env.get_obs()["joint_positions"]
-    # curr_joints[6:12] = hand_joints
-    # curr_joints[18:] = hand_joints
     print("Current joints:", curr_joints)
     print("Reset joints:", reset_joints)
     max_delta = (np.abs(curr_joints - reset_joints)).max()
@@ -1064,29 +1061,25 @@ def main(args):
     else:
         print("Headset haptics disabled")
 
-    # if args.jit_compile:
-    #     agent.compile_inference(
-    #         obs, num_diffusion_iters=args.num_diffusion_iters_compile
-    #     )
+    if args.jit_compile and args.agent.startswith("dp"):
+        agent.compile_inference(
+            obs, num_diffusion_iters=args.num_diffusion_iters_compile
+        )
     # going to start position
     print("Going to start position")
-    start_pos = agent.act(obs) # in mujoco
+    start_pos = agent.act(obs)  # in mujoco
     obs = env.get_obs()
     joints = obs["joint_positions"]
 
-    # if args.agent == "quest":
-    #     ur_idx = [i for i in range(len(joints))]
-    #     hand_idx = None
-    # else:
-    #     ur_idx = list(range(0, 6)) + list(range(12, 18))
-    #     hand_idx = list(range(6, 12)) + list(range(18, 24))
+    ur_idx = [i for i in range(min(6, len(joints)))]
+    hand_idx = [len(joints) - 1] if len(joints) == 7 else None
 
-    # if args.safe:
-    #     max_joint_delta = 0.5
-    #     max_hand_delta = 0.1
-    #     safety_wrapper = SafetyWrapper(
-    #         ur_idx, hand_idx, agent, delta=max_joint_delta, hand_delta=max_hand_delta
-    #     )
+    if args.safe:
+        max_joint_delta = 0.5
+        max_hand_delta = 0.1
+        safety_wrapper = SafetyWrapper(
+            ur_idx, hand_idx, agent, delta=max_joint_delta, hand_delta=max_hand_delta
+        )
 
     print(f"Start pos: {len(start_pos)}", f"Joints: {len(joints)}")
     assert len(start_pos) == len(
@@ -1148,12 +1141,12 @@ def main(args):
                 end="",
                 flush=True,
             )
-            # if args.safe:
-            #     action = safety_wrapper.act_safe(
-            #         agent, obs, eef=(args.agent.endswith("_eef"))
-            #     )
-            # else:
-            action = agent.act(obs)
+            if args.safe:
+                action = safety_wrapper.act_safe(
+                    agent, obs, eef=(args.agent.endswith("_eef"))
+                )
+            else:
+                action = agent.act(obs)
             dt = datetime.datetime.now()
 
             b_pressed = _is_right_b_pressed(agent)
@@ -1302,10 +1295,10 @@ def main(args):
                             ),
                         )
 
-            # if args.agent.endswith("_eef"):
-            #     obs = env.step_eef(action)
-            # else:
-            obs = env.step(action)
+            if args.agent.endswith("_eef"):
+                obs = env.step_eef(action)
+            else:
+                obs = env.step(action)
 
             ff = 1 / (time.time() - new_start_time)
             frame_freq.append(ff)

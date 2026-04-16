@@ -28,20 +28,14 @@ RIGHT_UR_IDX = list(range(12, 18))
 LEFT_HAND_IDX = list(range(6, 12))
 RIGHT_HAND_IDX = list(range(18, 24))
 HAND_IDX = LEFT_HAND_IDX + RIGHT_HAND_IDX
-RT_DIM = {
-    "eef": 12,
-    "hand_pos": 12,
-    "pos": 24,
-    "touch": 60,
-    "action": 24,
-}
+IMAGE_KEYS = {"img", "tactile_img"}
 TEST_INPUT = {
-    "joint_positions": torch.zeros(24),
-    "ee_pos_quat": torch.zeros(12),
+    "joint_positions": torch.zeros(7),
+    "ee_pos_quat": torch.zeros(6),
     "base_rgb": torch.zeros(3, 480, 640, 3),
     "base_depth": torch.zeros(3, 480, 640),
-    "control": torch.zeros(24),
-    "touch": torch.zeros(60),
+    "control": torch.zeros(7),
+    "touch": torch.zeros(30),
     "hand_pos": torch.zeros(12),
 }
 
@@ -53,6 +47,7 @@ class Agent:
             "eef": 64,
             "hand_pos": 64,
             "img": 128,
+            "tactile_img": 128,
             "pos": 128,
             "touch": 64,
         },
@@ -60,6 +55,7 @@ class Agent:
             "eef": 0.0,
             "hand_pos": 0.0,
             "img": 0.0,
+            "tactile_img": 0.0,
             "pos": 0.0,
             "touch": 0.0,
         },
@@ -87,6 +83,10 @@ class Agent:
         img_masking_prob=0.0,
         img_patch_size=16,
         compile_train=False,
+        joint_state_dim=24,
+        eef_state_dim=12,
+        touch_dim=60,
+        hand_pos_dim=12,
     ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.pred_horizon = pred_horizon
@@ -106,9 +106,18 @@ class Agent:
         self.camera_indices = camera_indices
         self.predict_pos_delta = predict_pos_delta
         self.image_num = len(camera_indices)
+        self.tactile_image_num = 2
+        self.tactile_image_channel = 3
         self.cpu = torch.device("cpu")
         image_encoder, touch_encoder, pos_encoder = None, None, None
         eef_dim, hand_pos_dim, image_dim, touch_dim, pos_dim = 0, 0, 0, 0, 0
+        self.rt_dim = {
+            "eef": eef_state_dim,
+            "hand_pos": hand_pos_dim,
+            "pos": joint_state_dim,
+            "touch": touch_dim,
+            "action": action_dim,
+        }
         self.clip_far = clip_far
         self.load_img = load_img
         self.color_jitter = color_jitter
@@ -210,7 +219,7 @@ class Agent:
         obs_dim = 0
         encoders = {}
         if "eef" in self.representation_type:
-            eef_dim = RT_DIM["eef"]  # pos, rot (axis-angle) for two arms
+            eef_dim = self.rt_dim["eef"]
             if identity_encoder:
                 eef_encoder = nn.Identity(eef_dim)
             else:
@@ -224,7 +233,7 @@ class Agent:
             encoders["eef"] = eef_encoder
             obs_dim += eef_dim
         if "hand_pos" in self.representation_type:
-            hand_pos_dim = RT_DIM["hand_pos"]  # 6 on each hand
+            hand_pos_dim = self.rt_dim["hand_pos"]
             if identity_encoder:
                 hand_pos_encoder = nn.Identity(hand_pos_dim)
             else:
@@ -250,8 +259,22 @@ class Agent:
             image_dim = output_sizes["img"] * self.image_num
             encoders["img"] = image_encoder
             obs_dim += image_dim
+        if "tactile_img" in self.representation_type:
+            tactile_encoder = ModuleList(
+                [
+                    ImageEncoder(
+                        output_sizes["tactile_img"],
+                        self.tactile_image_channel,
+                        dropout["tactile_img"],
+                    )
+                    for _ in range(self.tactile_image_num)
+                ]
+            )
+            tactile_image_dim = output_sizes["tactile_img"] * self.tactile_image_num
+            encoders["tactile_img"] = tactile_encoder
+            obs_dim += tactile_image_dim
         if "pos" in self.representation_type:
-            pos_dim = RT_DIM["pos"]
+            pos_dim = self.rt_dim["pos"]
             if identity_encoder:
                 pos_encoder = nn.Identity(pos_dim)
             else:
@@ -262,7 +285,7 @@ class Agent:
             encoders["pos"] = pos_encoder
             obs_dim += pos_dim
         if "touch" in self.representation_type:
-            touch_dim = RT_DIM["touch"]  # 6 on each finger
+            touch_dim = self.rt_dim["touch"]
             if identity_encoder:
                 touch_encoder = nn.Identity(touch_dim)
             else:
@@ -306,60 +329,80 @@ class Agent:
 
         self.predict_eef_delta = predict_eef_delta
 
-    def _get_image_observation(self, data):
+    def _get_image_observation(self, data, image_key="img"):
         # allocate memory for the image
+        if image_key == "img":
+            image_num = len(self.camera_indices)
+            image_channel = self.image_channel
+        elif image_key == "tactile_img":
+            image_num = self.tactile_image_num
+            image_channel = self.tactile_image_channel
+        else:
+            raise ValueError(f"Unsupported image key: {image_key}")
+
         img = torch.zeros(
-            (len(data), len(self.camera_indices), self.image_channel, 240, 320),
-            dtype=torch.float32,
+            (len(data), image_num, image_channel, 240, 320), dtype=torch.float32
         )
 
-        image_size = data[0]["base_rgb"].shape
-        H, W = image_size[1], image_size[2]
+        if image_key == "img":
+            base_rgb_key = "base_rgb" if "base_rgb" in data[0] else "base_camera_rgb"
+            base_depth_key = (
+                "base_depth" if "base_depth" in data[0] else "base_camera_depth"
+            )
+            image_size = data[0][base_rgb_key].shape
+            H, W = image_size[1], image_size[2]
 
-        if self.image_channel == 4:
+            if self.image_channel == 4:
             # Use depth
-            def process_rgbd(d):
-                rgbd = np.concatenate(
-                    [d["base_rgb"], d["base_depth"][..., None]], axis=-1
-                ).reshape(-1, H, W, self.image_channel)  # [camera_num, 480, 640, 4]
-                if self.clip_far:
-                    # Crop image based on depth
-                    clip_back_view = d["base_depth"][0] > (self.threshold / 10)
-                    clip_wrist = d["base_depth"][1:] > (self.threshold)
-                    clip = np.concatenate([clip_back_view, clip_wrist], axis=0)
-                    clip = np.concatenate(
-                        [clip[..., None]] * self.image_channel, axis=-1
-                    )
-                    rgbd = rgbd * clip
-                rgbd = rgbd[:, self.camera_indices].astype(np.float32)
-                rgbd = np.moveaxis(rgbd, -1, 1)  # [camera_num, 4, 480, 640]
-                if H == 480 and W == 640 and self.color_jitter == False:
-                    rgbd = self.downsample(
-                        torch.tensor(rgbd)
-                    )  # [camera_num, 4, 240, 320]
-                else:
-                    rgbd = torch.tensor(rgbd)
-                return rgbd
+                def process_rgbd(d):
+                    rgbd = np.concatenate(
+                        [d[base_rgb_key], d[base_depth_key][..., None]], axis=-1
+                    ).reshape(-1, H, W, self.image_channel)
+                    if self.clip_far:
+                        clip_back_view = d[base_depth_key][0] > (self.threshold / 10)
+                        clip_wrist = d[base_depth_key][1:] > (self.threshold)
+                        clip = np.concatenate([clip_back_view, clip_wrist], axis=0)
+                        clip = np.concatenate(
+                            [clip[..., None]] * self.image_channel, axis=-1
+                        )
+                        rgbd = rgbd * clip
+                    rgbd = rgbd[self.camera_indices].astype(np.float32)
+                    rgbd = np.moveaxis(rgbd, -1, 1)
+                    if H == 480 and W == 640 and self.color_jitter is False:
+                        rgbd = self.downsample(torch.tensor(rgbd))
+                    else:
+                        rgbd = torch.tensor(rgbd)
+                    return rgbd
 
-            fn = process_rgbd
+                fn = process_rgbd
 
+            else:
+                def process_rgb(d):
+                    rgb = d[base_rgb_key].reshape(-1, H, W, self.image_channel)
+                    rgb = rgb[self.camera_indices].astype(np.float32)
+                    rgb = np.moveaxis(rgb, -1, 1)
+                    if H == 480 and W == 640 and self.color_jitter is False:
+                        rgb = self.downsample(torch.tensor(rgb))
+                    else:
+                        rgb = torch.tensor(rgb)
+                    return rgb
+
+                fn = process_rgb
         else:
-            # Only use rgb
-            def process_rgb(d):
-                rgb = d["base_rgb"].reshape(
-                    -1, H, W, self.image_channel
-                )  # [camera_num, 480, 640, 3]
-                rgb = rgb[self.camera_indices].astype(np.float32)
-                rgb = np.moveaxis(rgb, -1, 1)  # [camera_num, 3, 480, 640]
-                if H == 480 and W == 640 and self.color_jitter == False:
-                    rgb = self.downsample(
-                        torch.tensor(rgb)
-                    )  # [camera_num, 3, 240, 320]
+            tactile_keys = ["tactile_left_rgb", "tactile_right_rgb"]
+            image_size = data[0][tactile_keys[0]].shape
+            H, W = image_size[0], image_size[1]
+
+            def process_tactile(d):
+                rgb = np.stack([d[k] for k in tactile_keys], axis=0).astype(np.float32)
+                rgb = np.moveaxis(rgb, -1, 1)
+                if H == 480 and W == 640 and self.color_jitter is False:
+                    rgb = self.downsample(torch.tensor(rgb))
                 else:
                     rgb = torch.tensor(rgb)
                 return rgb
 
-            fn = process_rgb
+            fn = process_tactile
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.num_workers
@@ -379,16 +422,18 @@ class Agent:
     def get_observation(self, data, load_img=False):
         input_data = {}
         for rt in self.representation_type:
-            if rt == "img":
+            if rt in IMAGE_KEYS:
                 if load_img:
-                    # Load all the image to the memory
-                    input_data[rt] = self._get_image_observation(data)
+                    input_data[rt] = self._get_image_observation(data, image_key=rt)
                 else:
-                    # Only keep the file path, and load the image while training
                     input_data[rt] = np.stack([d["file_path"] for d in data])
             elif rt == "eef":
                 input_data[rt] = np.stack([d["ee_pos_quat"] for d in data])
             elif rt == "hand_pos":
+                if self.rt_dim["hand_pos"] != len(HAND_IDX):
+                    raise NotImplementedError(
+                        "hand_pos representation is only implemented for the legacy 12-dim dual-hand layout."
+                    )
                 input_data[rt] = np.stack(
                     [d["joint_positions"][HAND_IDX] for d in data]
                 )
@@ -410,87 +455,130 @@ class Agent:
         )
         return pred
 
-    def _get_init_train_data(self, total_data_points, memmap_loader_path=""):
+    def _get_init_train_data(
+        self,
+        total_data_points,
+        memmap_loader_path="",
+        store_img_in_memory=False,
+    ):
         init_data = {}
         for rt in self.representation_type + ["action"]:
-            if rt == "img":
-                if memmap_loader_path == "":
-                    # Not using memmap
-                    if self.load_img:
-                        # Declear the memory to store the image
+            if rt in IMAGE_KEYS:
+                use_memmap_for_this_key = rt == "img" and memmap_loader_path != ""
+                if not use_memmap_for_this_key:
+                    if store_img_in_memory:
+                        image_num = self.image_num if rt == "img" else self.tactile_image_num
+                        image_channel = (
+                            self.image_channel
+                            if rt == "img"
+                            else self.tactile_image_channel
+                        )
                         init_data[rt] = np.empty(
                             (
                                 total_data_points,
-                                self.image_num,
-                                self.image_channel,
+                                image_num,
+                                image_channel,
                                 240,
                                 320,
                             ),
                             dtype=np.uint16,
                         )
                     else:
-                        # Only store the file path
                         init_data[rt] = np.empty((total_data_points,), dtype=object)
             else:
-                # Other representation types
                 init_data[rt] = np.zeros(
-                    (total_data_points, RT_DIM[rt]), dtype=np.float32
+                    (total_data_points, self.rt_dim[rt]), dtype=np.float32
                 )
         return init_data
+
+    def _get_image_memmap_path(self, memmap_loader_path, image_key):
+        if image_key == "img" or memmap_loader_path == "":
+            return memmap_loader_path
+        root, ext = os.path.splitext(memmap_loader_path)
+        if ext == "":
+            return f"{memmap_loader_path}-{image_key}"
+        return f"{root}-{image_key}{ext}"
 
     def get_train_loader(self, batch_size, memmap_loader_path="", eval=False):
         current_epi_dir = self.epi_dir
 
-        total_data_points = sum([len(os.listdir(epi)) for epi in current_epi_dir])
+        total_data_points = sum(
+            [data_processing.get_episode_length(epi) for epi in current_epi_dir]
+        )
+        has_h5_episode = any(
+            os.path.exists(os.path.join(epi, "trajectory.h5")) for epi in current_epi_dir
+        )
+        store_img_in_memory = self.load_img or has_h5_episode
         train_data = {"data": {}, "meta": {}}
+        image_memmaps = {}
+        cache_memmap = False
+        if memmap_loader_path != "":
+            for image_key in [k for k in IMAGE_KEYS if k in self.representation_type]:
+                image_num = self.image_num if image_key == "img" else self.tactile_image_num
+                image_channel = (
+                    self.image_channel
+                    if image_key == "img"
+                    else self.tactile_image_channel
+                )
+                image_shape = (total_data_points, image_num, image_channel, 240, 320)
+                image_memmap_path = self._get_image_memmap_path(
+                    memmap_loader_path, image_key
+                )
+                if os.path.exists(image_memmap_path):
+                    image_memmaps[image_key] = np.memmap(
+                        image_memmap_path,
+                        dtype=np.uint16,
+                        mode="r",
+                        shape=image_shape,
+                    )
+                    train_data["data"][image_key] = image_memmaps[image_key]
+                else:
+                    cache_memmap = True
+                    image_memmaps[image_key] = np.memmap(
+                        image_memmap_path,
+                        dtype=np.uint16,
+                        mode="w+",
+                        shape=image_shape,
+                    )
+
+        if cache_memmap:
+            store_img_in_memory = True
+
         train_data["data"] = self._get_init_train_data(
-            total_data_points, memmap_loader_path=memmap_loader_path
+            total_data_points,
+            memmap_loader_path=memmap_loader_path,
+            store_img_in_memory=store_img_in_memory,
         )
         train_data["meta"] = {"episode_ends": []}
-
-        cache_memmap = False
-        img_shape = (total_data_points, self.image_num, self.image_channel, 240, 320)
         if memmap_loader_path != "":
-            # Use memmap to load imgs
-            if os.path.exists(memmap_loader_path):
-                # Load the existing memmap file
-                fp = np.memmap(
-                    memmap_loader_path, dtype=np.uint16, mode="r", shape=img_shape
-                )
-                train_data["data"]["img"] = fp
-            else:
-                # Create a new memmap file
-                cache_memmap = True
-                fp = np.memmap(
-                    memmap_loader_path, dtype=np.uint16, mode="w+", shape=img_shape
-                )
-        else:
-            pass
+            for image_key, image_memmap in image_memmaps.items():
+                if image_key not in train_data["data"]:
+                    train_data["data"][image_key] = image_memmap
 
         data_index = 0
 
         print("Loading training data    ")
         for i, epi in enumerate(current_epi_dir):
             print("loading {}-th data from {}\r".format(i, epi), end="")
-            data = data_processing.iterate(epi, load_img=self.load_img)
+            data = data_processing.iterate(epi, load_img=store_img_in_memory)
             if len(data) == 0:
                 continue
 
             data_length = len(data)
 
             # images - (N, num_cams, self.image_channel, 240, 320)
-            obs = self.get_observation(data, self.load_img or cache_memmap)
+            obs = self.get_observation(data, store_img_in_memory or cache_memmap)
 
             # obs space
             for rt in self.representation_type:
-                if rt == "img":
-                    if cache_memmap:
-                        fp[data_index : data_index + data_length] = obs[rt]
-                        fp.flush()
-                    elif memmap_loader_path == "":
-                        train_data["data"][rt][
-                            data_index : data_index + data_length
-                        ] = obs[rt]
+                if rt in IMAGE_KEYS:
+                    if rt in image_memmaps and cache_memmap:
+                        image_memmaps[rt][data_index : data_index + data_length] = obs[rt]
+                        image_memmaps[rt].flush()
+                    elif memmap_loader_path == "" or rt not in image_memmaps:
+                        train_data["data"][rt][data_index : data_index + data_length] = obs[
+                            rt
+                        ]
                 else:
                     train_data["data"][rt][data_index : data_index + data_length] = obs[
                         rt
@@ -510,10 +598,23 @@ class Agent:
             data_index += data_length
 
         if cache_memmap:
-            fp = np.memmap(
-                memmap_loader_path, dtype=np.uint16, mode="r", shape=img_shape
-            )
-            train_data["data"]["img"] = fp
+            for image_key in image_memmaps:
+                image_num = self.image_num if image_key == "img" else self.tactile_image_num
+                image_channel = (
+                    self.image_channel
+                    if image_key == "img"
+                    else self.tactile_image_channel
+                )
+                image_shape = (total_data_points, image_num, image_channel, 240, 320)
+                image_memmap_path = self._get_image_memmap_path(
+                    memmap_loader_path, image_key
+                )
+                train_data["data"][image_key] = np.memmap(
+                    image_memmap_path,
+                    dtype=np.uint16,
+                    mode="r",
+                    shape=image_shape,
+                )
 
         print("Train data loaded")
         for k, v in train_data["data"].items():
@@ -526,7 +627,7 @@ class Agent:
             obs_horizon=self.obs_horizon,
             action_horizon=self.action_horizon,
             stats=self.stats,
-            load_img=self.load_img or memmap_loader_path != "",
+            load_img=store_img_in_memory or memmap_loader_path != "",
             transform=self.transform if not eval else self.eval_transform,
             get_img=self._get_image_observation,
             binarize_touch=self.binarize_touch,
@@ -614,6 +715,10 @@ class Agent:
 
     def get_eval_action(self, data):
         if self.predict_eef_delta:
+            if self.rt_dim["action"] != 24 or self.rt_dim["eef"] != 12:
+                raise NotImplementedError(
+                    "predict_eef_delta currently only supports the legacy 24-dim dual-arm configuration."
+                )
             # TODO: make sure this is only used when "control" is eef pose
             act = []
             for d in data:
@@ -651,10 +756,10 @@ class Agent:
         obs = self.get_observation(data, load_img=True)
         obs_list = []
 
-        if "img" in self.representation_type:
-            # transfer image type to float32
-            obs["img"] = obs["img"].float()
-            obs["img"] = self.eval_transform(obs["img"])
+        for image_key in IMAGE_KEYS:
+            if image_key in self.representation_type:
+                obs[image_key] = obs[image_key].float()
+                obs[image_key] = self.eval_transform(obs[image_key])
         for i in range(B):
             obs_list.append({rt: obs[rt][i] for rt in self.representation_type})
         return obs_list, action
@@ -778,6 +883,11 @@ if __name__ == "__main__":
     )  # For the image encoder of Diffusion Policy
     args.add_argument("--weight_decay", type=float, default=1e-5)
     args.add_argument("--image_output_size", type=int, default=32)
+    args.add_argument("--joint_state_dim", type=int, default=24)
+    args.add_argument("--action_dim", type=int, default=24)
+    args.add_argument("--eef_dim", type=int, default=12)
+    args.add_argument("--touch_dim", type=int, default=60)
+    args.add_argument("--hand_pos_dim", type=int, default=12)
     args.add_argument("--state_noise", type=float, default=0.0)
     args.add_argument("--img_gaussian_noise", type=float, default=0.0)
     args.add_argument("--img_masking_prob", type=float, default=0.0)
@@ -806,6 +916,7 @@ if __name__ == "__main__":
     args.add_argument("--use_train_test_split", type=boolean_string, default=True)
     args.add_argument("--use_memmap_cache", type=boolean_string, default=False)
     args.add_argument("--memmap_loader_path", type=str, default=None)
+    args.add_argument("--prepare_cache_only", type=boolean_string, default=False)
     args.add_argument("--compile_train", type=boolean_string, default=False)
 
     # wandb config
@@ -841,6 +952,7 @@ if __name__ == "__main__":
             "eef": args.dropout_rate,
             "hand_pos": args.dropout_rate,
             "img": args.img_dropout_rate,
+            "tactile_img": args.img_dropout_rate,
             "pos": args.dropout_rate,
             "touch": args.dropout_rate,
         },
@@ -848,6 +960,7 @@ if __name__ == "__main__":
             "eef": 64,
             "hand_pos": 64,
             "img": args.image_output_size,
+            "tactile_img": args.image_output_size,
             "pos": 128,
             "touch": 64,
         },
@@ -874,6 +987,11 @@ if __name__ == "__main__":
         img_masking_prob=args.img_masking_prob,
         img_patch_size=args.img_patch_size,
         compile_train=args.compile_train,
+        joint_state_dim=args.joint_state_dim,
+        action_dim=args.action_dim,
+        eef_state_dim=args.eef_dim,
+        touch_dim=args.touch_dim,
+        hand_pos_dim=args.hand_pos_dim,
     )
     if args.load_path is not None:
         agent.load(args.load_path)
@@ -957,6 +1075,16 @@ if __name__ == "__main__":
             memmap_loader_path = ""
 
         print("using memmap loader path:", memmap_loader_path)
+        if args.prepare_cache_only:
+            cache_source_path = train_path if train_path is not None else data_path
+            print(f"Preparing cache from {cache_source_path}")
+            agent.epi_dir = data_processing.get_epi_dir(
+                cache_source_path, traj_type=args.traj_type, prefix=args.prefix
+            )
+            agent.get_train_loader(batch_size=args.batch_size, memmap_loader_path=memmap_loader_path)
+            print("Cache preparation finished.")
+            sys.exit(0)
+
         agent.train(
             data_path,
             batch_size=args.batch_size,

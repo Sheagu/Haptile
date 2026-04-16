@@ -4,6 +4,10 @@ import pickle
 import numpy as np
 import torch
 
+IMAGE_KEYS = {"img", "tactile_img"}
+DUAL_HAND_LEFT_INDICES = np.array([6, 7, 8, 9, 10, 11])
+DUAL_HAND_RIGHT_INDICES = np.array([18, 19, 20, 21, 22, 23])
+
 
 def create_sample_indices(
     episode_ends: np.ndarray,
@@ -146,9 +150,11 @@ class Dataset(torch.utils.data.Dataset):
         print("Representation type: ", representation_type)
         except_img_representation_type = representation_type.copy()
 
-        if "img" in representation_type:
-            train_image_data = data["data"]["img"][:]
-            except_img_representation_type.remove("img")
+        train_image_data = {}
+        for image_key in IMAGE_KEYS:
+            if image_key in representation_type:
+                train_image_data[image_key] = data["data"][image_key][:]
+                except_img_representation_type.remove(image_key)
 
         train_data = {
             rt: data["data"][rt][:, :] for rt in except_img_representation_type
@@ -173,32 +179,33 @@ class Dataset(torch.utils.data.Dataset):
             for key, data in train_data.items():
                 stats[key] = get_data_stats(data)
 
-        # overwrite the min max of hand info
-        left_hand_indices = np.array([6, 7, 8, 9, 10, 11])
-        right_hand_indices = np.array([18, 19, 20, 21, 22, 23])
-
-        # hand joint_position range
-        hand_upper_ranges = np.array(
-            [hand_grip_range] * 4 + [90, 120], dtype=np.float32
-        )
-        hand_lower_ranges = np.array([5, 5, 5, 5, 5, 5], dtype=np.float32)
-
-        if "pos" in representation_type:
-            stats["pos"]["min"][left_hand_indices] = hand_lower_ranges
-            stats["pos"]["min"][right_hand_indices] = hand_lower_ranges
-            stats["pos"]["max"][left_hand_indices] = hand_upper_ranges
-            stats["pos"]["max"][right_hand_indices] = hand_upper_ranges
-        elif "hand_pos" in representation_type:
+        # Legacy dual-arm Ability-hand datasets use 24-dim joint/action vectors.
+        # Only apply those hand-specific normalization overrides when the data
+        # actually matches that schema. Single-arm UR + Robotiq trajectories do not.
+        if "pos" in representation_type and stats["pos"]["min"].shape[0] >= 24:
+            hand_upper_ranges = np.array(
+                [hand_grip_range] * 4 + [90, 120], dtype=np.float32
+            )
+            hand_lower_ranges = np.array([5, 5, 5, 5, 5, 5], dtype=np.float32)
+            stats["pos"]["min"][DUAL_HAND_LEFT_INDICES] = hand_lower_ranges
+            stats["pos"]["min"][DUAL_HAND_RIGHT_INDICES] = hand_lower_ranges
+            stats["pos"]["max"][DUAL_HAND_LEFT_INDICES] = hand_upper_ranges
+            stats["pos"]["max"][DUAL_HAND_RIGHT_INDICES] = hand_upper_ranges
+        elif "hand_pos" in representation_type and stats["hand_pos"]["min"].shape[0] >= 12:
+            hand_upper_ranges = np.array(
+                [hand_grip_range] * 4 + [90, 120], dtype=np.float32
+            )
+            hand_lower_ranges = np.array([5, 5, 5, 5, 5, 5], dtype=np.float32)
             stats["hand_pos"]["min"][range(6)] = hand_lower_ranges
             stats["hand_pos"]["min"][range(6, 12)] = hand_lower_ranges
             stats["hand_pos"]["max"][range(6)] = hand_upper_ranges
             stats["hand_pos"]["max"][range(6, 12)] = hand_upper_ranges
 
-        # hand action is normalized to [0,1]
-        stats["action"]["min"][left_hand_indices] = 0.0
-        stats["action"]["max"][left_hand_indices] = 1.0
-        stats["action"]["min"][right_hand_indices] = 0.0
-        stats["action"]["max"][right_hand_indices] = 1.0
+        if stats["action"]["min"].shape[0] >= 24:
+            stats["action"]["min"][DUAL_HAND_LEFT_INDICES] = 0.0
+            stats["action"]["max"][DUAL_HAND_LEFT_INDICES] = 1.0
+            stats["action"]["min"][DUAL_HAND_RIGHT_INDICES] = 0.0
+            stats["action"]["max"][DUAL_HAND_RIGHT_INDICES] = 1.0
 
         for key, data in train_data.items():
             if key == "touch" and binarize_touch:
@@ -209,8 +216,8 @@ class Dataset(torch.utils.data.Dataset):
                 normalized_train_data[key] = normalize_data(data, stats[key])
 
         # images are already normalized
-        if "img" in representation_type:
-            normalized_train_data["img"] = train_image_data
+        for image_key, image_data in train_image_data.items():
+            normalized_train_data[image_key] = image_data
 
         self.indices = indices
         self.stats = stats
@@ -223,9 +230,12 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.indices)
 
-    def read_img(self, image_pathes, idx):
+    def read_img(self, image_pathes, idx, image_key):
         if self.memmap_loader is not None:
-            # using memmap loader
+            if image_key != "img":
+                raise NotImplementedError(
+                    "memmap loading currently only supports img, not tactile_img"
+                )
             indices = range(idx, idx + self.obs_horizon)
             data = self.memmap_loader[indices]
             data = [
@@ -233,9 +243,8 @@ class Dataset(torch.utils.data.Dataset):
                 for i in range(data["base_rgb"].shape[0])
             ]
         else:
-            # not using memmap loader and loading images while training
             data = [pickle.load(open(image_path, "rb")) for image_path in image_pathes]
-        imgs = self.get_img(data)
+        imgs = self.get_img(data, image_key=image_key)
         return imgs
 
     def __getitem__(self, idx):
@@ -260,25 +269,22 @@ class Dataset(torch.utils.data.Dataset):
         for k in self.representation_type:
             # discard unused observations
             nsample[k] = nsample[k][: self.obs_horizon]
-            if k == "img":
+            if k in IMAGE_KEYS:
                 if not self.load_img:
-                    nsample["img"] = self.read_img(nsample["img"], idx)
+                    nsample[k] = self.read_img(nsample[k], idx, k)
                 else:
-                    nsample["img"] = torch.tensor(
-                        nsample["img"].astype(np.float32), dtype=torch.float32
+                    nsample[k] = torch.tensor(
+                        nsample[k].astype(np.float32), dtype=torch.float32
                     )
-                nsample_shape = nsample["img"].shape
-                # transform the img
-                nsample["img"] = nsample["img"].reshape(
+                nsample_shape = nsample[k].shape
+                nsample[k] = nsample[k].reshape(
                     nsample_shape[0] * nsample_shape[1], *nsample_shape[2:]
-                )                                                                           # (Batch * num_cam, Channel, Height, Width)
-                nsample["img"] = self.transform(nsample["img"])
-                nsample["img"] = nsample["img"].reshape(nsample_shape[:3] + (216, 288))     # (Batch, num_cam, Channel, Height, Width)
-
+                )
+                nsample[k] = self.transform(nsample[k])
+                nsample[k] = nsample[k].reshape(nsample_shape[:3] + (216, 288))
             else:
                 nsample[k] = torch.tensor(nsample[k], dtype=torch.float32)
                 if self.state_noise > 0.0:
-                    # add noise to the state
                     nsample[k] = nsample[k] + torch.randn_like(nsample[k]) * self.state_noise
         nsample["action"] = torch.tensor(nsample["action"], dtype=torch.float32)
         return nsample

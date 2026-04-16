@@ -9,3 +9,5 @@ videos/
 shared/
 data/
 huawei/
+data_split/
+runs/

@@ -13,6 +13,9 @@ from torch.nn.functional import mse_loss
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 
+IMAGE_KEYS = {"img", "tactile_img"}
+FEATURE_ORDER = ["eef", "hand_pos", "img", "tactile_img", "pos", "touch"]
+
 
 def normalize_data(data, stats):
     # nomalize to [0,1]
@@ -165,16 +168,14 @@ class DiffusionPolicy:
                         features = []
 
                         ### IMPT: make sure input is always in this order
-                        # eef, hand_pos, img, pos, touch
+                        # eef, hand_pos, img, tactile_img, pos, touch
                         for data_key in [
-                            dk
-                            for dk in ["eef", "hand_pos", "img", "pos", "touch"]
-                            if dk in self.representation_type
+                            dk for dk in FEATURE_ORDER if dk in self.representation_type
                         ]:
                             nsample = nbatch[data_key][:, : self.obs_horizon].to(
                                 self.device
                             )
-                            if data_key == "img":
+                            if data_key in IMAGE_KEYS:
                                 images = [
                                     nsample[:, :, i] for i in range(nsample.shape[2])
                                 ]  # [B, obs_horizon, M, C, H, W]
@@ -420,7 +421,7 @@ class DiffusionPolicy:
 
     def _get_data_forward(self, stats, obs_deque, data_key):
         sample = np.stack([x[data_key] for x in obs_deque])
-        if data_key != "img" and (data_key != "touch" or not self.binarize_touch):
+        if data_key not in IMAGE_KEYS and (data_key != "touch" or not self.binarize_touch):
             # image is already normalized
             sample = normalize_data(sample, stats=stats[data_key])
         sample = (
@@ -438,14 +439,12 @@ class DiffusionPolicy:
             features = []
 
             ### IMPT: make sure input is always in this order
-            # eef, hand_pos, img, pos, touch
+            # eef, hand_pos, img, tactile_img, pos, touch
             for data_key in [
-                dk
-                for dk in ["eef", "hand_pos", "img", "pos", "touch"]
-                if dk in self.representation_type
+                dk for dk in FEATURE_ORDER if dk in self.representation_type
             ]:
                 sample = self._get_data_forward(stats, obs_deque, data_key)
-                if data_key == "img":
+                if data_key in IMAGE_KEYS:
                     images = [
                         sample[:, :, i] for i in range(sample.shape[2])
                     ]  # [1, obs_horizon, M, C, H, W]
