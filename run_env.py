@@ -133,6 +133,17 @@ def print_color(*args, color=None, attrs=(), **kwargs):
     print(*args, **kwargs)
 
 
+def _policy_obs_with_raw_tactile(obs: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """Feed raw tactile frames to the policy while preserving env/display obs."""
+    policy_obs = dict(obs)
+    for sensor_name in ("tactile_left", "tactile_right"):
+        raw_key = f"{sensor_name}_raw_rgb"
+        rgb_key = f"{sensor_name}_rgb"
+        if raw_key in obs:
+            policy_obs[rgb_key] = obs[raw_key]
+    return policy_obs
+
+
 @dataclass
 class MarkerTrackingState:
     name: str
@@ -1067,7 +1078,7 @@ def main(args):
         )
     # going to start position
     print("Going to start position")
-    start_pos = agent.act(obs)  # in mujoco
+    start_pos = agent.act(_policy_obs_with_raw_tactile(obs))  # in mujoco
     obs = env.get_obs()
     joints = obs["joint_positions"]
 
@@ -1143,10 +1154,12 @@ def main(args):
             )
             if args.safe:
                 action = safety_wrapper.act_safe(
-                    agent, obs, eef=(args.agent.endswith("_eef"))
+                    agent,
+                    _policy_obs_with_raw_tactile(obs),
+                    eef=(args.agent.endswith("_eef")),
                 )
             else:
-                action = agent.act(obs)
+                action = agent.act(_policy_obs_with_raw_tactile(obs))
             dt = datetime.datetime.now()
 
             b_pressed = _is_right_b_pressed(agent)
