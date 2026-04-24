@@ -1,7 +1,6 @@
 import datetime
 import os
 import pickle
-import shutil
 import socket
 import tempfile
 import time
@@ -440,14 +439,6 @@ def _is_right_b_pressed(agent) -> bool:
         return False
     _, button_data = oculus_reader.get_transformations_and_buttons()
     return bool(button_data.get("B", False))
-
-
-def _is_rocker_pressed(agent) -> bool:
-    oculus_reader = getattr(agent, "oculus_reader", None)
-    if oculus_reader is None:
-        return False
-    _, button_data = oculus_reader.get_transformations_and_buttons()
-    return bool(button_data.get("RJ", False))
 
 
 def _prepare_obs_to_save(
@@ -893,12 +884,12 @@ class Args:
     marker_motion_compensate_global_drift: bool = True
     headset_haptics_host: str = "192.168.1.126"
     headset_haptics_port: int = 9000
-    haptics_min_motion: float = 0.0
-    haptics_max_motion: float = 20.0
+    haptics_min_motion: float = 10.0
+    haptics_max_motion: float = 100.0
     haptics_discrete_levels: bool = True
-    haptics_soft_threshold: float = 0.1 #0.02 0.25
-    haptics_mild_threshold: float = 0.3 #0.05  0.5
-    haptics_firm_threshold: float = 0.4#0.09 0.75
+    haptics_soft_threshold: float = 0.25
+    haptics_mild_threshold: float = 0.5
+    haptics_firm_threshold: float = 0.75
     haptics_soft_force: float = 0.1
     haptics_mild_force: float = 0.4
     haptics_firm_force: float = 1.0
@@ -1040,6 +1031,7 @@ def main(args):
     obs = env.get_obs()
     marker_tracking_states: dict[str, MarkerTrackingState | None] = {}
     marker_motion = {"tactile_left": 0.0, "tactile_right": 0.0}
+    prev_b_pressed = False
     if args.enable_marker_tracking and args.use_tactile:
         for sensor_name in ("tactile_left", "tactile_right"):
             obs_key = f"{sensor_name}_rgb"
@@ -1105,309 +1097,232 @@ def main(args):
         joints
     ), f"agent output dim = {len(start_pos)}, but env dim = {len(joints)}"
 
-    traj_idx = count_folders(args.data_dir)
+    print(f"Collecting traj no.{count_folders(args.data_dir) + 1}")
 
+    # time.sleep(2.0)
+    while not trigger_state["r"]:
+        print(">>> Press on [r] to start")
+        time.sleep(0.2)
+
+    print_color("\nReady to go 🚀🚀🚀", color="green", attrs=("bold",))
+
+    start_time = time.time()
+
+    trajectory_writer = None
+    if args.save_data:
+        time_str = datetime.datetime.now().strftime("%m%d_%H%M%S")
+        # if args.agent.startswith("dp"):
+        #     # eval
+        #     save_path = (
+        #         Path(args.data_dir).expanduser()
+        #         / "_".join(
+        #             [
+        #                 args.dp_ckpt_path.split("/")[-2],
+        #                 args.dp_ckpt_path.split("/")[-1][:-5],
+        #             ]
+        #         )
+        #         / time_str
+        #     )
+        # else:
+        save_path = Path(args.data_dir).expanduser() / time_str
+        save_path.mkdir(parents=True, exist_ok=True)
+        print(f"Saving to {save_path}")
+        if args.save_format == "h5":
+            trajectory_writer = H5TrajectoryWriter(
+                save_path / "trajectory.h5",
+                video_fps=args.hz,
+            )
+            print(f"Trajectory file: {save_path / 'trajectory.h5'}")
+        elif args.save_format != "pkl":
+            raise ValueError(
+                f"Invalid save_format: {args.save_format}. Expected 'h5' or 'pkl'."
+            )
+
+    is_first_frame = True
     try:
-        while True:  # outer loop: one iteration per trajectory
-            traj_idx += 1
-            print(f"\nTrajectory #{traj_idx}")
+        frame_freq = []
+        while True:
+            new_start_time = time.time()
+            num = new_start_time - start_time
+            message = f"\rTime passed: {round(num, 2)}          "
             print_color(
-                ">>> Press rocker [RJ] ONCE to move to initial position and start recording",
-                color="cyan",
+                message,
+                color="white",
                 attrs=("bold",),
+                end="",
+                flush=True,
             )
+            if args.safe:
+                action = safety_wrapper.act_safe(
+                    agent,
+                    _policy_obs_with_raw_tactile(obs),
+                    eef=(args.agent.endswith("_eef")),
+                )
+            else:
+                action = agent.act(_policy_obs_with_raw_tactile(obs))
+            dt = datetime.datetime.now()
 
-            # Ensure rocker is released before listening for the next click
-            # (prevents the 2nd click of a double-click from spuriously triggering a new trajectory)
-            while _is_rocker_pressed(agent):
-                time.sleep(0.05)
-            time.sleep(0.1)  # debounce
+            b_pressed = _is_right_b_pressed(agent)
+            if (
+                args.enable_marker_tracking
+                and args.use_tactile
+                and b_pressed
+                and not prev_b_pressed
+            ):
+                for sensor_name in ("tactile_left", "tactile_right"):
+                    obs_key = f"{sensor_name}_rgb"
+                    marker_tracking_states[sensor_name] = _init_marker_tracking_state(
+                        sensor_name=sensor_name,
+                        frame=obs.get(obs_key),
+                        marker_tracking_params=marker_tracking_params,
+                        create_window=False,
+                    )
+                    marker_motion[sensor_name] = 0.0
+                print_color(
+                    "\n[marker_tracking] reset tactile reference frame from right controller B",
+                    color="cyan",
+                    attrs=("bold",),
+                )
+            prev_b_pressed = b_pressed
 
-            # Wait for single rocker click (rising edge)
-            prev_rocker_wait = False
-            while True:
-                rocker_wait = _is_rocker_pressed(agent)
-                if rocker_wait and not prev_rocker_wait:
-                    break
-                prev_rocker_wait = rocker_wait
-                time.sleep(0.05)
+            if args.enable_marker_tracking and args.use_tactile:
+                for sensor_name in ("tactile_left", "tactile_right"):
+                    obs_key = f"{sensor_name}_rgb"
+                    tracking_key = f"{sensor_name}_marker_tracking"
+                    state, overlay, motion = _update_marker_tracking(
+                        sensor_name=sensor_name,
+                        frame=obs.get(obs_key),
+                        state=marker_tracking_states.get(sensor_name),
+                        marker_tracking_params=marker_tracking_params,
+                        lk_params=lk_params,
+                        reset_on_loss=args.marker_tracking_reset_on_loss,
+                        arrow_scale=args.marker_arrow_scale,
+                        fb_max_error=args.marker_flow_fb_max_error,
+                        motion_deadband=args.marker_motion_deadband,
+                        motion_smoothing=args.marker_motion_smoothing,
+                        motion_release_smoothing=args.marker_motion_release_smoothing,
+                        min_valid_points=args.marker_motion_min_valid_points,
+                        compensate_global_drift=args.marker_motion_compensate_global_drift,
+                    )
+                    marker_tracking_states[sensor_name] = state
+                    marker_motion[sensor_name] = motion or 0.0
+                    obs[f"{sensor_name}_marker_motion"] = np.array(
+                        marker_motion[sensor_name], dtype=np.float32
+                    )
+                    if overlay is not None:
+                        obs[tracking_key] = overlay
+                        if (
+                            args.marker_tracking_show_view
+                            and state is not None
+                            and state.display_window is not None
+                        ):
+                            cv2.imshow(
+                                state.display_window,
+                                cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
+                            )
+                            cv2.waitKey(1)
 
-            # Move to initial position
-            print_color("\nMoving to initial position...", color="cyan")
-            curr_joints = env.get_obs()["joint_positions"]
-            max_delta = (np.abs(curr_joints - reset_joints)).max()
-            steps = min(int(max_delta / 0.01), 20)
-            for jnt in np.linspace(curr_joints, reset_joints, steps):
-                env.step(jnt)
+            if haptics_sender is not None:
+                sum_motion = max(
+                    marker_motion["tactile_left"],
+                    marker_motion["tactile_right"],
+                )
+                motion_span = max(
+                    haptics_sender.config.max_motion - haptics_sender.config.min_motion,
+                    1e-6,
+                )
+                normalized_sum_motion = clamp01(
+                    (sum_motion - haptics_sender.config.min_motion) / motion_span
+                )
+                haptics_sender.update(
+                    left_motion=0.0,
+                    right_motion=sum_motion,
+                    enabled=(not haptics_sender.config.active_only)
+                    or getattr(agent, "control_active", True),
+                )
+                current_haptics_state = haptics_sender.current_state()
+                obs["haptics_state"] = np.bytes_(current_haptics_state)
+                obs["haptics_sum_marker_motion"] = np.array(sum_motion, dtype=np.float32)
+                obs["haptics_normalized_sum_marker_motion"] = np.array(
+                    normalized_sum_motion, dtype=np.float32
+                )
+                if current_haptics_state != prev_haptics_state:
+                    print_color(
+                        "\n"
+                        f"[haptics] state: {current_haptics_state}, "
+                        f"sum_marker_motion: {sum_motion:.4f}, "
+                        f"normalized_sum: {normalized_sum_motion:.4f}",
+                        color="magenta",
+                        attrs=("bold",),
+                    )
+                    prev_haptics_state = current_haptics_state
+            else:
+                obs["haptics_state"] = np.bytes_("disabled")
+                obs["haptics_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
+                obs["haptics_normalized_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
 
-            obs = env.get_obs()
-            print_color(
-                "Recording started! Press rocker [RJ] TWICE to stop.",
-                color="green",
-                attrs=("bold",),
-            )
-
-            start_time = time.time()
-
-            # Setup data saving for this trajectory
-            trajectory_writer = None
-            save_path = None
             if args.save_data:
-                time_str = datetime.datetime.now().strftime("%m%d_%H%M%S")
-                save_path = Path(args.data_dir).expanduser() / time_str
-                save_path.mkdir(parents=True, exist_ok=True)
-                print(f"Saving to {save_path}")
-                if args.save_format == "h5":
-                    trajectory_writer = H5TrajectoryWriter(
-                        save_path / "trajectory.h5",
-                        video_fps=args.hz,
-                    )
-                    print(f"Trajectory file: {save_path / 'trajectory.h5'}")
-                elif args.save_format != "pkl":
-                    raise ValueError(
-                        f"Invalid save_format: {args.save_format}. Expected 'h5' or 'pkl'."
-                    )
-
-            is_first_frame = True
-            frame_freq = []
-            prev_b_pressed = False
-            stop_type = None  # "double" → save, "triple" → delete
-
-            # Click detection state
-            prev_rocker = False
-            rocker_click_count = 0
-            last_rocker_click_time = 0.0
-            DOUBLE_CLICK_WINDOW = 0.5
-
-            try:
-                while True:
-                    new_start_time = time.time()
-                    num = new_start_time - start_time
-                    message = f"\rTime passed: {round(num, 2)}          "
-                    print_color(
-                        message,
-                        color="white",
-                        attrs=("bold",),
-                        end="",
-                        flush=True,
-                    )
-                    if args.safe:
-                        action = safety_wrapper.act_safe(
-                            agent,
-                            _policy_obs_with_raw_tactile(obs),
-                            eef=(args.agent.endswith("_eef")),
-                        )
-                    else:
-                        action = agent.act(_policy_obs_with_raw_tactile(obs))
-                    dt = datetime.datetime.now()
-
-                    b_pressed = _is_right_b_pressed(agent)
-                    if (
-                        args.enable_marker_tracking
-                        and args.use_tactile
-                        and b_pressed
-                        and not prev_b_pressed
-                    ):
-                        for sensor_name in ("tactile_left", "tactile_right"):
-                            obs_key = f"{sensor_name}_rgb"
-                            marker_tracking_states[sensor_name] = _init_marker_tracking_state(
-                                sensor_name=sensor_name,
-                                frame=obs.get(obs_key),
-                                marker_tracking_params=marker_tracking_params,
-                                create_window=False,
-                            )
-                            marker_motion[sensor_name] = 0.0
-                        print_color(
-                            "\n[marker_tracking] reset tactile reference frame from right controller B",
-                            color="cyan",
-                            attrs=("bold",),
-                        )
-                    prev_b_pressed = b_pressed
-
-                    if args.enable_marker_tracking and args.use_tactile:
-                        for sensor_name in ("tactile_left", "tactile_right"):
-                            obs_key = f"{sensor_name}_rgb"
-                            tracking_key = f"{sensor_name}_marker_tracking"
-                            state, overlay, motion = _update_marker_tracking(
-                                sensor_name=sensor_name,
-                                frame=obs.get(obs_key),
-                                state=marker_tracking_states.get(sensor_name),
-                                marker_tracking_params=marker_tracking_params,
-                                lk_params=lk_params,
-                                reset_on_loss=args.marker_tracking_reset_on_loss,
-                                arrow_scale=args.marker_arrow_scale,
-                                fb_max_error=args.marker_flow_fb_max_error,
-                                motion_deadband=args.marker_motion_deadband,
-                                motion_smoothing=args.marker_motion_smoothing,
-                                motion_release_smoothing=args.marker_motion_release_smoothing,
-                                min_valid_points=args.marker_motion_min_valid_points,
-                                compensate_global_drift=args.marker_motion_compensate_global_drift,
-                            )
-                            marker_tracking_states[sensor_name] = state
-                            marker_motion[sensor_name] = motion or 0.0
-                            obs[f"{sensor_name}_marker_motion"] = np.array(
-                                marker_motion[sensor_name], dtype=np.float32
-                            )
-                            if overlay is not None:
-                                obs[tracking_key] = overlay
-                                if (
-                                    args.marker_tracking_show_view
-                                    and state is not None
-                                    and state.display_window is not None
-                                ):
-                                    cv2.imshow(
-                                        state.display_window,
-                                        cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
-                                    )
-                                    cv2.waitKey(1)
-
-                    if haptics_sender is not None:
-                        sum_motion = max(
-                            marker_motion["tactile_left"],
-                            marker_motion["tactile_right"],
-                        )
-                        motion_span = max(
-                            haptics_sender.config.max_motion - haptics_sender.config.min_motion,
-                            1e-6,
-                        )
-                        normalized_sum_motion = clamp01(
-                            (sum_motion - haptics_sender.config.min_motion) / motion_span
-                        )
-                        haptics_sender.update(
-                            left_motion=0.0,
-                            right_motion=sum_motion,
-                            enabled=(not haptics_sender.config.active_only)
-                            or getattr(agent, "control_active", True),
-                        )
-                        current_haptics_state = haptics_sender.current_state()
-                        obs["haptics_state"] = np.bytes_(current_haptics_state)
-                        obs["haptics_sum_marker_motion"] = np.array(sum_motion, dtype=np.float32)
-                        obs["haptics_normalized_sum_marker_motion"] = np.array(
-                            normalized_sum_motion, dtype=np.float32
-                        )
-                        if current_haptics_state != prev_haptics_state:
-                            print_color(
-                                "\n"
-                                f"[haptics] state: {current_haptics_state}, "
-                                f"sum_marker_motion: {sum_motion:.4f}, "
-                                f"normalized_sum: {normalized_sum_motion:.4f}",
-                                color="magenta",
-                                attrs=("bold",),
-                            )
-                            prev_haptics_state = current_haptics_state
-                    else:
-                        obs["haptics_state"] = np.bytes_("disabled")
-                        obs["haptics_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
-                        obs["haptics_normalized_sum_marker_motion"] = np.array(0.0, dtype=np.float32)
-
-                    if args.save_data:
-                        if is_first_frame:
-                            is_first_frame = False
-                        else:
-                            if args.save_format == "h5":
-                                obs_to_save = trajectory_writer.append(
-                                    dt,
-                                    obs,
-                                    action,
-                                    save_raw_images_only=args.save_raw_images_only,
-                                    save_base_size=(
-                                        args.save_base_width,
-                                        args.save_base_height,
-                                    ),
-                                    save_tactile_size=(
-                                        args.save_tactile_width,
-                                        args.save_tactile_height,
-                                    ),
-                                )
-                                _save_pngs(
-                                    save_path / f"{dt.isoformat().replace(':', '-').replace('.', '-')}.h5",
-                                    obs_to_save,
-                                    save_png=args.save_png,
-                                    save_tactile_png=args.save_tactile_png,
-                                    use_tactile=args.use_tactile,
-                                )
-                            else:
-                                save_frame(
-                                    save_path,
-                                    dt,
-                                    obs,
-                                    action,
-                                    save_png=args.save_png,
-                                    save_tactile_png=args.save_tactile_png,
-                                    use_tactile=args.use_tactile,
-                                    save_raw_images_only=args.save_raw_images_only,
-                                    save_base_size=(
-                                        args.save_base_width,
-                                        args.save_base_height,
-                                    ),
-                                    save_tactile_size=(
-                                        args.save_tactile_width,
-                                        args.save_tactile_height,
-                                    ),
-                                )
-
-                    if args.agent.endswith("_eef"):
-                        obs = env.step_eef(action)
-                    else:
-                        obs = env.step(action)
-
-                    ff = 1 / (time.time() - new_start_time)
-                    frame_freq.append(ff)
-
-                    # Click detection: double-click to stop+save, triple-click to stop+delete
-                    rocker_pressed = _is_rocker_pressed(agent)
-                    if rocker_pressed and not prev_rocker:
-                        now = time.time()
-                        if now - last_rocker_click_time < DOUBLE_CLICK_WINDOW:
-                            rocker_click_count += 1
-                        else:
-                            rocker_click_count = 1
-                        last_rocker_click_time = now
-                    prev_rocker = rocker_pressed
-
-                    if rocker_click_count >= 3:
-                        print_color(
-                            "\nTriple-click detected, stopping and deleting trajectory.",
-                            color="red",
-                            attrs=("bold",),
-                        )
-                        stop_type = "triple"
-                        break
-                    elif rocker_click_count == 2 and (time.time() - last_rocker_click_time) > DOUBLE_CLICK_WINDOW:
-                        print_color(
-                            "\nDouble-click detected, stopping recording.",
-                            color="yellow",
-                            attrs=("bold",),
-                        )
-                        stop_type = "double"
-                        break
-
-            finally:
-                if trajectory_writer is not None:
-                    trajectory_writer.close()
-
-                if stop_type == "triple" and save_path is not None and save_path.exists():
-                    shutil.rmtree(save_path)
-                    traj_idx -= 1
-                    print_color(
-                        f"Trajectory deleted: {save_path}",
-                        color="red",
-                        attrs=("bold",),
-                    )
+                if is_first_frame:
+                    is_first_frame = False
                 else:
-                    if trajectory_writer is not None:
-                        print("Trajectory file saved.")
-                    if args.save_data and save_path is not None and len(frame_freq) > 1:
-                        with open(save_path / "freq.txt", "w") as f:
-                            f.write(
-                                f"Average FPS: {np.mean(frame_freq[1:])}\n"
-                                f"Max FPS: {np.max(frame_freq[1:])}\n"
-                                f"Min FPS: {np.min(frame_freq[1:])}\n"
-                                f"Std FPS: {np.std(frame_freq[1:])}\n\n"
-                            )
-                            for step, freq in enumerate(frame_freq):
-                                f.write(f"{step}: {freq}\n")
-                        print(f"Saved {len(frame_freq)} frames to {save_path}")
+                    if args.save_format == "h5":
+                        obs_to_save = trajectory_writer.append(
+                            dt,
+                            obs,
+                            action,
+                            save_raw_images_only=args.save_raw_images_only,
+                            save_base_size=(
+                                args.save_base_width,
+                                args.save_base_height,
+                            ),
+                            save_tactile_size=(
+                                args.save_tactile_width,
+                                args.save_tactile_height,
+                            ),
+                        )
+                        _save_pngs(
+                            save_path / f"{dt.isoformat().replace(':', '-').replace('.', '-')}.h5",
+                            obs_to_save,
+                            save_png=args.save_png,
+                            save_tactile_png=args.save_tactile_png,
+                            use_tactile=args.use_tactile,
+                        )
+                    else:
+                        save_frame(
+                            save_path,
+                            dt,
+                            obs,
+                            action,
+                            # activated=agent.trigger_state,
+                            save_png=args.save_png,
+                            save_tactile_png=args.save_tactile_png,
+                            use_tactile=args.use_tactile,
+                            save_raw_images_only=args.save_raw_images_only,
+                            save_base_size=(
+                                args.save_base_width,
+                                args.save_base_height,
+                            ),
+                            save_tactile_size=(
+                                args.save_tactile_width,
+                                args.save_tactile_height,
+                            ),
+                        )
+
+            if args.agent.endswith("_eef"):
+                obs = env.step_eef(action)
+            else:
+                obs = env.step(action)
+
+            ff = 1 / (time.time() - new_start_time)
+            frame_freq.append(ff)
+
+            if trigger_state["l"]:
+                print_color(
+                    "\nStopping because keyboard trigger_state['l'] became True",
+                    color="red",
+                    attrs=("bold",),
+                )
+                break
 
     except KeyboardInterrupt:
         print_color("\nInterrupted!", color="red", attrs=("bold",))
@@ -1419,7 +1334,40 @@ def main(args):
         )
         traceback.print_exc()
     finally:
+        # if "dp" in args.agent:
+        #     import glob
+
+        #     from moviepy.editor import ImageSequenceClip
+
+        #     # find all the pkl files in the episode directory
+        #     pkls = sorted(glob.glob(os.path.join(save_path, "*.pkl")))
+        #     print("Total number of pkls: ", len(pkls))
+        #     frames = []
+        #     for pkl in pkls:
+        #         with open(pkl, "rb") as f:
+        #             try:
+        #                 data = pickle.load(f)
+        #             except:
+        #                 continue
+        #         rgb = data["base_rgb"]
+        #         rgb = np.concatenate([rgb[i] for i in range(rgb.shape[0])], axis=1)
+        #         frames.append(rgb)
+        #     clip = ImageSequenceClip(frames, fps=5)
+        #     ckpt_path = os.path.dirname(args.dp_ckpt_path)
+        #     parent_name = os.path.basename(ckpt_path)
+        #     clip.write_videofile(
+        #         os.path.join(ckpt_path, f"{parent_name}_{time_str}.mp4")
+        #     )
+
+        #     # save frame freq as txt
+        #     with open(os.path.join(ckpt_path, f"freq_{time_str}.txt"), "w") as f:
+        #         for step, freq in enumerate(frame_freq):
+        #             f.write(f"{step}: {freq}\n")
+        # else:
         print("Done")
+
+        if trajectory_writer is not None:
+            trajectory_writer.close()
 
         if haptics_sender is not None:
             haptics_sender.stop()
@@ -1430,6 +1378,18 @@ def main(args):
             if hasattr(camera, 'release'):
                 camera.release()
                 print(f"Released {camera_name}")
+
+        # save frame freq as txt
+        if args.save_data:
+            with open(save_path / "freq.txt", "w") as f:
+                f.write(
+                    f"Average FPS: {np.mean(frame_freq[1:])}\n"
+                    f"Max FPS: {np.max(frame_freq[1:])}\n"
+                    f"Min FPS: {np.min(frame_freq[1:])}\n"
+                    f"Std FPS: {np.std(frame_freq[1:])}\n\n"
+                )
+                for step, freq in enumerate(frame_freq):
+                    f.write(f"{step}: {freq}\n")
 
         os._exit(0)
 
