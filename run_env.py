@@ -921,6 +921,7 @@ class Args:
     inference_agent_host = "127.0.0.2"  # ip of the inference server (localhost if running locally; currently defaults to bt) inference server needs to use the same checkpoint folder when launching the inference node (args need to match)
 
     dp_ckpt_path: str = "./shared/ckpts/best.ckpt"
+    act_ckpt_path: str = ""
 
     temporal_ensemble_mode: str = "avg"
     temporal_ensemble_act_tau: float = 0.5
@@ -1017,6 +1018,13 @@ def main(args):
             from agents.dp_agent import BimanualDPAgent
 
             agent = BimanualDPAgent(ckpt_path=args.dp_ckpt_path)
+    elif args.agent in ["act", "act_eef"]:
+        if args.use_jit_agent:
+            raise ValueError("ACT deployment currently supports local inference only; set --no-use-jit-agent.")
+        from agents.act_agent import BimanualACTAgent
+
+        ckpt_path = args.act_ckpt_path or args.dp_ckpt_path
+        agent = BimanualACTAgent(ckpt_path=ckpt_path)
     else:
         raise ValueError(f"Invalid agent name : {args.agent}")
 
@@ -1080,7 +1088,7 @@ def main(args):
     else:
         print("Headset haptics disabled")
 
-    if args.jit_compile and args.agent.startswith("dp"):
+    if args.jit_compile and args.agent.startswith(("dp", "act")):
         agent.compile_inference(
             obs, num_diffusion_iters=args.num_diffusion_iters_compile
         )

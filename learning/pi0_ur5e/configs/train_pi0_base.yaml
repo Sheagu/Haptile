@@ -1,0 +1,9 @@
+checkpoint: pi0_base
+steps: 3000
+batch_size: 16
+lora: true
+include_tactile: false
+wandb: false
+exp_name: ur5e_cup_pi0_base
+gradient_checkpointing: true
+freeze_vlm: false

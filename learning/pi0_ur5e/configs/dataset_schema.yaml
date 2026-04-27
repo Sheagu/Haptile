@@ -1,0 +1,46 @@
+action_mode: ee_delta_6d_gripper
+image_size: [224, 224]
+camera_padding_strategy: duplicate_base
+include_tactile: false
+tactile_feature_mode: none
+default_prompt: pick up the paper cup and place it on the target
+
+# Override these lists if a dataset uses different names. Dotted names are
+# supported for nested dict/JSONL rows.
+field_map:
+  base_rgb:
+    - base_rgb
+    - base_camera_rgb
+    - base_camera_rgb_0
+    - observation.images.base_rgb
+  wrist_rgb:
+    - wrist_rgb
+    - wrist_camera_rgb
+    - camera_wrist_rgb
+    - observation.images.wrist_rgb
+  robot_state:
+    - robot_state
+    - joint_positions
+    - ee_pos_quat
+    - observation.state
+  ee_pose:
+    - ee_pos_quat
+    - eef_pose
+    - ee_pose
+    - tcp_pose
+  action:
+    - action
+    - control
+    - actions
+  gripper_state:
+    - gripper_state
+    - gripper_position
+  tactile:
+    - tactile
+    - touch
+    - force
+    - pressure
+  language_instruction:
+    - language_instruction
+    - prompt
+    - task
