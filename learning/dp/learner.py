@@ -318,8 +318,12 @@ class DiffusionPolicy:
                 if eval_data is not None and epoch_idx % eval_freq == 0:
                     self.to_ema()
                     self.ema_nets.eval()
-                    print("Evaluating one trajectory...")
-                    obs, action = eval_data
+                    if callable(eval_data):
+                        eval_label, current_eval_data = eval_data(epoch_idx)
+                    else:
+                        eval_label, current_eval_data = "eval", eval_data
+                    print(f"Evaluating trajectory: {eval_label}")
+                    obs, action = current_eval_data
                     _, mse, normalized_mse = self.eval(obs, action)
                     self.writer.add_scalar("Action_MSE", mse, epoch_idx)
                     self.writer.add_scalar("Normalized_MSE", normalized_mse, epoch_idx)

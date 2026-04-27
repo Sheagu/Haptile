@@ -675,9 +675,9 @@ class Agent:
             eval_trajs = data_processing.get_epi_dir(
                 test_path, traj_type=traj_type, prefix=prefix
             )
-            assert len(eval_trajs) == 1
-            eval_traj = eval_trajs[0]
-            print("eval traj:", eval_traj)
+            if len(eval_trajs) == 0:
+                raise ValueError(f"No eval trajectories found in {test_path}")
+            print(f"eval trajectories: {len(eval_trajs)}")
         else:
             if type(path_list) != list:
                 path_list = [path_list]
@@ -688,7 +688,22 @@ class Agent:
             eval_traj = self.epi_dir[-1]
             self.epi_dir.remove(eval_traj)
             print("eval traj:", eval_traj)
-        eval_data = self.get_eval_data(eval_traj, eval_memmap_loader_path)
+            eval_trajs = [eval_traj]
+
+        eval_round = 0
+
+        def get_rotating_eval_data(epoch_idx):
+            nonlocal eval_round
+            eval_traj = eval_trajs[eval_round % len(eval_trajs)]
+            eval_round += 1
+            # A single shared memmap path cannot safely cache multiple eval
+            # trajectories with different lengths, so rotating eval loads H5
+            # images directly when more than one test trajectory is present.
+            current_eval_memmap_path = (
+                eval_memmap_loader_path if len(eval_trajs) == 1 else ""
+            )
+            eval_data = self.get_eval_data(eval_traj, current_eval_memmap_path)
+            return os.path.basename(eval_traj), eval_data
 
         train_loader = self.get_train_loader(batch_size, memmap_loader_path)
         self.policy.set_lr_scheduler(len(train_loader) * epochs)
@@ -704,14 +719,18 @@ class Agent:
             epochs,
             train_loader,
             save_path=save_path,
-            eval_data=eval_data,
+            eval_data=get_rotating_eval_data,
             eval_freq=eval_freq,
             save_freq=save_freq,
             wandb_logger=wandb_logger,
         )
 
         self.policy.to_ema()
-        self.eval(eval_traj, memmap_loader_path=eval_memmap_loader_path)
+        self.eval_all(
+            eval_trajs,
+            save_path=save_path,
+            memmap_loader_path=eval_memmap_loader_path if len(eval_trajs) == 1 else "",
+        )
 
     def get_train_action(self, data):
         act = self.get_eval_action(data)
@@ -842,6 +861,48 @@ class Agent:
                         },
                         f,
                     )
+
+    def eval_all(self, data_paths, save_path=None, memmap_loader_path=""):
+        if type(data_paths) != list:
+            data_paths = [data_paths]
+        results = []
+        print(f"EVALUATING {len(data_paths)} TEST TRAJECTORIES")
+        for data_path in data_paths:
+            eval_data = self.get_eval_data(data_path, memmap_loader_path)
+            obs, action = eval_data
+            _, mse, norm_mse = self.policy.eval(obs, action)
+            result = {
+                "traj": data_path,
+                "action_mse": float(mse),
+                "normalized_mse": float(norm_mse),
+            }
+            results.append(result)
+            print(
+                f"{os.path.basename(data_path)}: "
+                f"ACTION_MSE={result['action_mse']}, "
+                f"NORM_MSE={result['normalized_mse']}"
+            )
+
+        if len(results) > 0:
+            mean_action_mse = float(np.mean([r["action_mse"] for r in results]))
+            mean_norm_mse = float(np.mean([r["normalized_mse"] for r in results]))
+        else:
+            mean_action_mse = float("nan")
+            mean_norm_mse = float("nan")
+        summary = {
+            "results": results,
+            "mean_action_mse": mean_action_mse,
+            "mean_normalized_mse": mean_norm_mse,
+        }
+        print(
+            f"FULL_TEST_ACTION_MSE: {mean_action_mse}, "
+            f"FULL_TEST_NORMALIZED_MSE: {mean_norm_mse}"
+        )
+        if save_path is not None:
+            os.makedirs(save_path, exist_ok=True)
+            with open(os.path.join(save_path, "full_eval_summary.pkl"), "wb") as f:
+                pickle.dump(summary, f)
+        return summary
 
     def get_eval_loader(
         self, dir_path, traj_type="plain", prefix="0", batch_size=32, num_workers=16
@@ -1155,11 +1216,19 @@ if __name__ == "__main__":
                 eval_trajs = data_processing.get_epi_dir(
                     test_path, traj_type=args.traj_type, prefix=args.prefix
                 )
-                assert len(eval_trajs) == 1
-                print(f"Preparing eval cache from {eval_trajs[0]}")
-                agent.get_eval_data(
-                    eval_trajs[0], memmap_loader_path=eval_memmap_loader_path
-                )
+                if len(eval_trajs) == 0:
+                    raise ValueError(f"No eval trajectories found in {test_path}")
+                if len(eval_trajs) == 1:
+                    print(f"Preparing eval cache from {eval_trajs[0]}")
+                    agent.get_eval_data(
+                        eval_trajs[0], memmap_loader_path=eval_memmap_loader_path
+                    )
+                else:
+                    print(
+                        "Skipping eval memmap cache: rotating eval has "
+                        f"{len(eval_trajs)} test trajectories with different lengths, "
+                        "so eval data will be loaded directly from H5."
+                    )
             print("Cache preparation finished.")
             sys.exit(0)
 
