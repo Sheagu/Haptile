@@ -445,7 +445,7 @@ def _is_right_b_pressed(agent) -> bool:
 def _is_rocker_pressed(agent) -> bool:
     oculus_reader = getattr(agent, "oculus_reader", None)
     if oculus_reader is None:
-        return False
+        return bool(trigger_state.get("r", False))
     _, button_data = oculus_reader.get_transformations_and_buttons()
     return bool(button_data.get("RJ", False))
 
@@ -1119,11 +1119,13 @@ def main(args):
         while True:  # outer loop: one iteration per trajectory
             traj_idx += 1
             print(f"\nTrajectory #{traj_idx}")
-            print_color(
-                ">>> Press rocker [RJ] ONCE to move to initial position and start recording",
-                color="cyan",
-                attrs=("bold",),
+            has_oculus = getattr(agent, "oculus_reader", None) is not None
+            start_hint = (
+                ">>> Press rocker [RJ] ONCE to move to initial position and start recording"
+                if has_oculus
+                else ">>> Press and release [r] ONCE to move to initial position and start recording"
             )
+            print_color(start_hint, color="cyan", attrs=("bold",))
 
             # Ensure rocker is released before listening for the next click
             # (prevents the 2nd click of a double-click from spuriously triggering a new trajectory)
@@ -1149,11 +1151,12 @@ def main(args):
                 env.step(jnt)
 
             obs = env.get_obs()
-            print_color(
-                "Recording started! Press rocker [RJ] TWICE to stop.",
-                color="green",
-                attrs=("bold",),
+            stop_hint = (
+                "Recording started! Press rocker [RJ] TWICE to stop."
+                if has_oculus
+                else "Recording started! Press [r] TWICE to stop (triple to discard)."
             )
+            print_color(stop_hint, color="green", attrs=("bold",))
 
             start_time = time.time()
 
