@@ -450,6 +450,12 @@ def _is_rocker_pressed(agent) -> bool:
     return bool(button_data.get("RJ", False))
 
 
+def _reset_agent_temporal_state(agent) -> None:
+    reset_fn = getattr(agent, "reset_temporal_state", None)
+    if callable(reset_fn):
+        reset_fn()
+
+
 def _prepare_obs_to_save(
     obs: Dict[str, np.ndarray],
     action: np.ndarray,
@@ -1092,9 +1098,11 @@ def main(args):
         agent.compile_inference(
             obs, num_diffusion_iters=args.num_diffusion_iters_compile
         )
+        _reset_agent_temporal_state(agent)
     # going to start position
     print("Going to start position")
     start_pos = agent.act(_policy_obs_with_raw_tactile(obs))  # in mujoco
+    _reset_agent_temporal_state(agent)
     obs = env.get_obs()
     joints = obs["joint_positions"]
 
@@ -1151,6 +1159,7 @@ def main(args):
                 env.step(jnt)
 
             obs = env.get_obs()
+            _reset_agent_temporal_state(agent)
             stop_hint = (
                 "Recording started! Press rocker [RJ] TWICE to stop."
                 if has_oculus

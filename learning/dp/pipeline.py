@@ -411,12 +411,22 @@ class Agent:
             future_to_data = {
                 executor.submit(fn, d): (d, i) for i, d in enumerate(data)
             }
+            failures = []
             for future in concurrent.futures.as_completed(future_to_data):
                 d, i = future_to_data[future]
                 try:
                     img[i] = future.result()
                 except Exception as exc:
-                    print(f"loading image failed: {exc}")
+                    failures.append((i, d.get("file_path", "<live_obs>"), exc))
+
+        if failures:
+            examples = ", ".join(
+                f"index={i}, source={source}, error={exc}"
+                for i, source, exc in failures[:3]
+            )
+            raise RuntimeError(
+                f"Failed to load {len(failures)} {image_key} observation(s): {examples}"
+            )
 
         return img
 

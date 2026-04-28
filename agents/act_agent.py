@@ -152,6 +152,11 @@ class BimanualACTAgent:
         self.gripper_min = gripper_min
         self.gripper_max = gripper_max
 
+    def reset_temporal_state(self) -> None:
+        self.obsque.clear()
+        self.action_queue.clear()
+        self.control = get_reset_joints(ur_eef=self.predict_eef_delta)
+
     @staticmethod
     def get_default_act_args():
         return {
@@ -195,6 +200,7 @@ class BimanualACTAgent:
         self.dp.policy.forward = torch.compile(torch.no_grad(self.dp.policy.forward))
         for _ in range(25):
             self.act(example_obs)
+        self.reset_temporal_state()
 
     def _preprocess_obs(self, obs: Dict[str, Any]):
         obs = self.dp.get_observation([obs], load_img=True)

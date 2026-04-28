@@ -30,18 +30,37 @@ class ZMQInferenceServer:
                 # print("observation queue exhausted")
                 break
             else:
-                state_dict = pickle.loads(message)
+                candidate = pickle.loads(message)
+                if candidate.get("reset_temporal_state"):
+                    self._handle_control_message(candidate)
+                    state_dict = None
+                    continue
+                if self._handle_control_message(candidate):
+                    continue
+                state_dict = candidate
         if state_dict is None:  # block until an observation is recieved
             while True:
                 message = self._socket.recv()
                 state_dict = pickle.loads(message)
-                if "obs" not in state_dict and "t" not in state_dict:
-                    if "num_diffusion_iters" in state_dict:  # ignore and send success
-                        self._socket.send_string("success")
+                if "obs" not in state_dict or "t" not in state_dict:
+                    if self._handle_control_message(state_dict):
+                        continue
                     continue
                 break
 
         return state_dict["obs"], state_dict["t"]
+
+    def _handle_control_message(self, state_dict):
+        if "num_diffusion_iters" in state_dict:
+            self._socket.send_string("success")
+            return True
+        if state_dict.get("reset_temporal_state"):
+            reset_fn = getattr(self, "reset_temporal_state", None)
+            if callable(reset_fn):
+                reset_fn()
+            self._socket.send_string("success")
+            return True
+        return False
 
     def infer(self, *args, **kwargs):
         raise NotImplementedError

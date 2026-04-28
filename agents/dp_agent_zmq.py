@@ -2,6 +2,7 @@ import numpy as np
 import pickle
 import time
 import torch
+import zmq
 from typing import Any, Dict
 
 from agents.dp_agent import BimanualDPAgent as LocalDPAgent, get_reset_joints
@@ -40,6 +41,9 @@ class BimanualDPAgentServer(ZMQInferenceServer):
     def get_default_dp_args():
         return LocalDPAgent.get_default_dp_args()
 
+    def reset_temporal_state(self) -> None:
+        self.agent.reset_temporal_state()
+
     def compile_inference(self, precision="high"):
         message = self._socket.recv()
         start_time = time.time()
@@ -56,6 +60,7 @@ class BimanualDPAgentServer(ZMQInferenceServer):
         self.agent.num_diffusion_iters = self.num_diffusion_iters
         for _ in range(25):
             self.agent.act(example_obs)
+        self.agent.reset_temporal_state()
         print("success, compile time: " + str(time.time() - start_time))
         self._socket.send_string("success")
 
@@ -104,6 +109,20 @@ class BimanualDPAgent(ZMQInferenceClient):
     @staticmethod
     def get_default_dp_args():
         return LocalDPAgent.get_default_dp_args()
+
+    def reset_temporal_state(self) -> None:
+        self.act_q.clear()
+        self.t = 0
+        self.last_act = get_reset_joints(ur_eef=self.predict_eef_delta)
+        self.control = get_reset_joints(ur_eef=self.predict_eef_delta)
+        self._socket.send(pickle.dumps({"reset_temporal_state": True}))
+        message = self._socket.recv()
+        assert message == b"success"
+        while True:
+            try:
+                self._socket.recv(flags=zmq.NOBLOCK)
+            except zmq.Again:
+                break
 
     def compile_inference(self, example_obs, num_diffusion_iters):
         message = pickle.dumps(
