@@ -1,8 +1,10 @@
 # keep in alphabetical order
 diffusers
 ml-collections
+msgpack
 natsort
 numpy
 numpy-quaternion
 tensorboard
 tyro
+websockets

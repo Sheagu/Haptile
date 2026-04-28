@@ -10,7 +10,7 @@ Install the current repository dependencies first, then install optional convers
 
 ```bash
 pip install -r requirements.txt
-pip install h5py pyyaml opencv-python matplotlib pytest pyzmq
+pip install h5py pyyaml opencv-python matplotlib pytest pyzmq msgpack websockets
 ```
 
 Install OpenPI in a separate checkout following its official instructions. Keep Python, CUDA, and JAX versions consistent with that checkout. This repository injects a small `pi0_ur5e_cup` config patch into `openpi/src/openpi/training/config.py` when running validation/training; it does not vendor OpenPI source.
@@ -136,6 +136,51 @@ python learning/pi0_ur5e/scripts/serve_policy.py \
   --port 8000
 ```
 
+Two-computer deployment:
+
+Run this on the GPU computer:
+
+```bash
+cd /home/rpl/yongqiang/tele-gsy
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
+python learning/pi0_ur5e/scripts/serve_policy.py \
+  --openpi-root /home/rpl/yongqiang/openpi \
+  --config-name pi0_ur5e_cup \
+  --checkpoint-dir /path/to/checkpoint_step_dir \
+  --dataset-root /path/to/lerobot_dataset \
+  --port 8000
+```
+
+Run this on the robot/control computer to verify the network path before connecting the real robot:
+
+```bash
+cd /home/rpl/yongqiang/tele-gsy
+python learning/pi0_ur5e/scripts/query_policy_server.py \
+  --host <gpu_computer_ip> \
+  --port 8000
+```
+
+The robot-side adapter should send observations with these raw keys:
+
+```python
+from pi0_ur5e.policy_client import WebsocketPolicyClient, build_policy_observation, safe_action
+from pi0_ur5e.schema import Pi0Ur5eConfig
+
+cfg = Pi0Ur5eConfig()
+policy = WebsocketPolicyClient("<gpu_computer_ip>", 8000)
+
+obs = build_policy_observation(
+    base_rgb=base_rgb_uint8_224x224x3,
+    wrist_rgb=wrist_rgb_uint8_224x224x3,
+    state=robot_state_float32_7d,
+    prompt=cfg.default_prompt,
+)
+action = safe_action(policy, obs, cfg.action_limits)
+```
+
+`policy.action_chunk(obs)` returns the full OpenPI action horizon. `policy.act(obs)` returns the first action in that chunk for simple step-by-step control. Keep the existing action clipping and workspace checks on the robot/control computer, even though inference runs remotely.
+
 Dry-run rollout:
 
 ```bash
@@ -144,6 +189,31 @@ python learning/pi0_ur5e/scripts/rollout_pi0_policy.py \
   --output-dir outputs/pi0_dry_run \
   --steps 10
 ```
+
+Network dry-run rollout against the GPU server:
+
+```bash
+python learning/pi0_ur5e/scripts/rollout_pi0_policy.py \
+  --server-host <gpu_computer_ip> \
+  --server-port 8000 \
+  --output-dir outputs/pi0_network_dry_run \
+  --steps 10
+```
+
+Real robot loop with the existing deployment entrypoints:
+
+```bash
+# Robot/control computer, terminal 1: robot and camera ZMQ nodes
+python launch_nodes.py
+
+# Robot/control computer, terminal 2: existing environment loop using remote pi0
+python run_env.py \
+  --agent pi0_eef \
+  --pi0-policy-host <gpu_computer_ip> \
+  --pi0-policy-port 8000
+```
+
+Use `pi0_eef` for the current `pi0_ur5e_cup` policy because it was trained with `ee_delta_6d_gripper` actions. The plain `pi0` branch is present for future joint-space pi0 checkpoints, but it will reject the current EEF-delta action shape.
 
 Real robot execution is intentionally disabled in the generic adapter. A project-specific wrapper must verify action clipping, workspace bounds, emergency stop, max step delta, and gripper range before enabling `--allow-real-robot true`.
 

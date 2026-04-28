@@ -928,6 +928,12 @@ class Args:
 
     dp_ckpt_path: str = "./shared/ckpts/best.ckpt"
     act_ckpt_path: str = ""
+    pi0_policy_host: str = ""
+    pi0_policy_port: int = 8000
+    pi0_prompt: str = "pick up the paper cup and place it on the target"
+    pi0_state_dim: int = 7
+    pi0_base_camera_index: int = 1
+    pi0_wrist_camera_index: int = 0
 
     temporal_ensemble_mode: str = "avg"
     temporal_ensemble_act_tau: float = 0.5
@@ -1031,6 +1037,21 @@ def main(args):
 
         ckpt_path = args.act_ckpt_path or args.dp_ckpt_path
         agent = BimanualACTAgent(ckpt_path=ckpt_path)
+    elif args.agent in ["pi0", "pi0_eef"]:
+        from agents.pi0_agent import Pi0Agent
+
+        pi0_host = args.pi0_policy_host or args.inference_agent_host
+        pi0_port = args.pi0_policy_port or int(args.inference_agent_port)
+        agent = Pi0Agent(
+            host=pi0_host,
+            port=pi0_port,
+            predict_eef_delta=args.agent.endswith("_eef"),
+            state_dim=args.pi0_state_dim,
+            base_camera_index=args.pi0_base_camera_index,
+            wrist_camera_index=args.pi0_wrist_camera_index,
+            prompt=args.pi0_prompt,
+        )
+        print(f"pi0 agent created: ws://{pi0_host}:{pi0_port}")
     else:
         raise ValueError(f"Invalid agent name : {args.agent}")
 
