@@ -23,6 +23,7 @@ def test_dataset_reader_reads_fake_episode(tmp_path):
     out = episodes[0]
     assert out.base_rgb.shape == (3, 8, 8, 3)
     assert out.wrist_rgb.shape == (3, 8, 8, 3)
-    assert out.robot_state.shape == (3, 6)
+    assert out.robot_state.shape == (3, 7)
+    assert np.allclose(out.robot_state[:, -1], [0.0, 0.0, 1.0])
     assert out.action.shape == (3, 7)
     assert out.language_instruction == "test prompt"

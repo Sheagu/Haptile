@@ -48,6 +48,18 @@ if [[ -z "$DATASET_ROOT" || -z "$OUTPUT_DIR" || -z "$OPENPI_ROOT" ]]; then
   exit 2
 fi
 
+UV_BIN="${UV_BIN:-}"
+if [[ -z "$UV_BIN" ]]; then
+  UV_BIN="$(command -v uv || true)"
+fi
+if [[ -z "$UV_BIN" && -x "$HOME/.local/bin/uv" ]]; then
+  UV_BIN="$HOME/.local/bin/uv"
+fi
+if [[ -z "$UV_BIN" ]]; then
+  echo "Could not find uv. Install uv or set UV_BIN=/path/to/uv." >&2
+  exit 2
+fi
+
 DATASET_ROOT="$(realpath "$DATASET_ROOT")"
 OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && realpath "$OUTPUT_DIR")"
 OPENPI_ROOT="$(realpath "$OPENPI_ROOT")"
@@ -90,8 +102,8 @@ if [[ "$WANDB" != "true" ]]; then
   export WANDB_MODE=disabled
 fi
 
-COMPUTE_CMD=(uv run scripts/compute_norm_stats.py --config-name "$CONFIG_NAME")
-TRAIN_CMD=(uv run scripts/train.py "$CONFIG_NAME" --exp-name "$EXP_NAME")
+COMPUTE_CMD=("$UV_BIN" run scripts/compute_norm_stats.py --config-name "$CONFIG_NAME")
+TRAIN_CMD=("$UV_BIN" run scripts/train.py "$CONFIG_NAME" --exp-name "$EXP_NAME")
 if [[ "$RESUME" == "true" || "$RESUME" != "false" ]]; then
   TRAIN_CMD+=(--resume)
 elif [[ "$OVERWRITE" == "true" ]]; then

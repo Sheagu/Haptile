@@ -57,6 +57,15 @@ class DatasetReader:
     def _episode_paths(self) -> list[Path]:
         if self.root.is_file():
             return [self.root]
+        if (self.root / "trajectory.h5").exists():
+            return [self.root / "trajectory.h5"]
+        linked_h5s = sorted(
+            path / "trajectory.h5"
+            for path in self.root.iterdir()
+            if path.is_dir() and (path / "trajectory.h5").exists()
+        )
+        if linked_h5s:
+            return linked_h5s
         h5s = sorted(self.root.glob("**/trajectory.h5"))
         if h5s:
             return h5s
@@ -75,15 +84,17 @@ class DatasetReader:
     def _read_episode_path(self, path: Path) -> Episode | None:
         if path.name == "trajectory.h5":
             frames, timestamps, metadata = self._frames_from_h5(path)
+            episode_id = path.parent.name
         elif path.is_dir():
             frames, timestamps, metadata = self._frames_from_pkl_dir(path)
+            episode_id = path.name
         elif path.suffix == ".npz":
             return self._episode_from_npz(path)
         else:
             return None
         if not frames:
             return None
-        return self._episode_from_frames(path.stem if path.is_file() else path.name, frames, timestamps, metadata)
+        return self._episode_from_frames(episode_id, frames, timestamps, metadata)
 
     def _frames_from_pkl_dir(self, path: Path) -> tuple[list[dict[str, Any]], np.ndarray, dict[str, Any]]:
         files = sorted(path.glob("*.pkl"), key=_natural_key)
@@ -106,13 +117,21 @@ class DatasetReader:
             numeric = {key: np.asarray(ds[:]) for key, ds in frames_group.items()}
             frame_count = int(f.attrs.get("frame_count", 0)) or (len(next(iter(numeric.values()))) if numeric else len(f.get("timestamps", [])))
             videos = {}
+            video_keys = self._video_keys_to_decode()
             for key, ds in f.get("videos", {}).items():
+                if video_keys and key not in video_keys:
+                    continue
                 videos[key] = decode_h5_video(ds, is_depth=False)
             times = np.arange(frame_count, dtype=np.float64)
             if "timestamps" in f:
                 times = np.asarray([parse_timestamp(x, i) for i, x in enumerate(f["timestamps"][:])], dtype=np.float64)
             attrs = {k: _attr_to_python(v) for k, v in f.attrs.items()}
         grouped = _group_video_streams(videos)
+        lengths = [frame_count, len(times)]
+        lengths.extend(len(value) for value in numeric.values() if hasattr(value, "__len__"))
+        lengths.extend(len(value) for value in grouped.values() if hasattr(value, "__len__"))
+        frame_count = min(lengths)
+        times = times[:frame_count]
         frames = []
         for i in range(frame_count):
             frame = {key: value[i] for key, value in numeric.items() if len(value) > i}
@@ -144,11 +163,14 @@ class DatasetReader:
         base = self._stack_or_paths(frames, "base_rgb")
         wrist = self._stack_or_paths(frames, "wrist_rgb")
         state = self._numeric_series(frames, "ee_pose")
+        state_from_ee_pose = state is not None
         if state is None:
             state = self._numeric_series(frames, "robot_state")
         if state is None:
             raise ValueError(f"{episode_id}: could not detect robot_state/ee pose fields")
         gripper = self._numeric_series(frames, "gripper_state")
+        if state_from_ee_pose and gripper is not None and state.shape[1] == 6:
+            state = np.concatenate([state, gripper.reshape(len(state), -1)[:, :1]], axis=1)
         raw_action = self._numeric_series(frames, "action")
         action = build_action(raw_action, state, gripper, self.config.action_mode)
         tactile = self._numeric_series(frames, "tactile")
@@ -230,6 +252,18 @@ class DatasetReader:
                 return key
         raise KeyError(canonical)
 
+    def _video_keys_to_decode(self) -> set[str]:
+        keys = set()
+        for canonical in ("base_rgb", "wrist_rgb"):
+            for key in self.field_map.get(canonical, []):
+                if "." not in key:
+                    keys.add(key)
+        if self.config.include_tactile:
+            for key in self.field_map.get("tactile", []):
+                if "." not in key:
+                    keys.add(key)
+        return keys
+
     def _first_value(self, frames: list[dict[str, Any]], canonical: str) -> Any:
         for frame in frames:
             for key in self.field_map.get(canonical, [canonical]):
@@ -282,13 +316,11 @@ def _lookup(mapping: dict[str, Any], keys: Iterable[str]) -> Any:
 
 def _group_video_streams(videos: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     groups: dict[str, list[tuple[int, np.ndarray]]] = {}
-    result = {}
+    result = dict(videos)
     for key, value in videos.items():
         match = re.match(r"^(.*)_(\d+)$", key)
         if match:
             groups.setdefault(match.group(1), []).append((int(match.group(2)), value))
-        else:
-            result[key] = value
     for key, items in groups.items():
         items.sort(key=lambda item: item[0])
         result[key] = np.stack([value for _, value in items], axis=1)

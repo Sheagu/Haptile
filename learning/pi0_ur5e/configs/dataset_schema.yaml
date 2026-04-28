@@ -10,11 +10,13 @@ default_prompt: pick up the paper cup and place it on the target
 field_map:
   base_rgb:
     - base_rgb
+    - base_camera_rgb_1
+    - third_view_camera_rgb
     - base_camera_rgb
-    - base_camera_rgb_0
     - observation.images.base_rgb
   wrist_rgb:
     - wrist_rgb
+    - base_camera_rgb_0
     - wrist_camera_rgb
     - camera_wrist_rgb
     - observation.images.wrist_rgb
