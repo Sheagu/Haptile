@@ -1063,7 +1063,7 @@ def main(args):
     else:
         from agents.dp_agent import get_reset_joints
 
-        reset_joints = get_reset_joints(ur_eef=args.agent.endswith("_eef"))
+        reset_joints = get_reset_joints(ur_eef=False)
     curr_joints = env.get_obs()["joint_positions"]
     print("Current joints:", curr_joints)
     print("Reset joints:", reset_joints)
