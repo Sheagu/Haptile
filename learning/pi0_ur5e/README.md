@@ -280,8 +280,23 @@ Base pi0 has no tactile pretraining, so compare no-tactile and tactile runs befo
 
 ### Training
 ```bash
-bash learning/pi0_ur5e/scripts/train_pi0_base.sh   --dataset-root data_split/grab_03/grab_03_lerobot_train   --output-dir data_split/grab_03/pi0_grab_03   --openpi-root /home/rpl/yongqiang/openpi   --repo-id local/pi0_ur5e_grab_03   --exp-name ur5e_grab_03_pi0_base   --steps 10000   --batch-size 16   --lora true --resume True
+# Stop any running policy server or previous training process before starting.
+# Check with `nvidia-smi`; kill stale python/uv processes that still hold GPU memory.
+unset XLA_PYTHON_CLIENT_PREALLOCATE
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.9
+bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
+  --dataset-root data_split/grab_03/grab_03_lerobot_train_fixed \
+  --output-dir data_split/grab_03/pi0_grab_03_fixed \
+  --openpi-root /home/rpl/yongqiang/openpi \
+  --repo-id local/pi0_ur5e_grab_03_fixed \
+  --exp-name ur5e_grab_03_pi0_base_fixed \
+  --steps 10000 \
+  --batch-size 16 \
+  --action-horizon 10 \
+  --lora true
 ```
+
+If this OOMs on a clean GPU, retry with `XLA_PYTHON_CLIENT_PREALLOCATE=true`. If it still OOMs, use `--batch-size 8`.
 
 ### Deployment
 
@@ -293,21 +308,26 @@ export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
 python learning/pi0_ur5e/scripts/serve_policy.py \
   --openpi-root /home/rpl/yongqiang/openpi \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir data_split/grab_03/pi0_grab_03/checkpoints/pi0_ur5e_cup/ur5e_grab_03_pi0_base/9999 \
-  --dataset-root data_split/grab_03/grab_03_lerobot_train \
+  --checkpoint-dir data_split/grab_03/pi0_grab_03_fixed/checkpoints/pi0_ur5e_cup/ur5e_grab_03_pi0_base_fixed/6000 \
+  --dataset-root data_split/grab_03/grab_03_lerobot_train_fixed \
   --port 8000
 ```
 
-For that legacy checkpoint, run the robot side in joint-position mode:
+For the fixed EEF-delta checkpoint, run the robot side in EEF mode:
 
 ```bash
 python run_env.py \
-  --agent pi0 \
+  --agent pi0_eef \
   --safe \
   --safe-max-joint-delta 0.03 \
   --safe-max-hand-delta 0.03 \
   --pi0-action-chunk-size 6 \
-  --pi0-joint-ema-alpha 0.35 \
+  --pi0-gripper-ema-alpha 0.35 \
+  --pi0-gripper-close-threshold 0.18 \
+  --pi0-gripper-open-threshold 0.08 \
+  --pi0-gripper-min-hold-steps 30 \
   --pi0-policy-host <gpu_computer_ip> \
   --pi0-policy-port 8000
 ```
+
+For legacy checkpoints trained before the fixed EEF-delta conversion, run the robot side in joint-position mode with `--agent pi0 --safe`.

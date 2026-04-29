@@ -133,9 +133,13 @@ class TeleGsyLeRobotUR5eDataConfig(DataConfigFactory):
 _TELE_GSY_PI0_UR5E_LORA = _tele_gsy_env_bool("PI0_UR5E_LORA", True)
 _TELE_GSY_PI0_UR5E_REPO_ID = _tele_gsy_os.environ.get("PI0_UR5E_LEROBOT_REPO_ID", "local/pi0_ur5e_cup")
 _TELE_GSY_PI0_UR5E_MODEL = (
-    pi0_config.Pi0Config(paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora")
+    pi0_config.Pi0Config(
+        paligemma_variant="gemma_2b_lora",
+        action_expert_variant="gemma_300m_lora",
+        action_horizon=_tele_gsy_env_int("PI0_UR5E_ACTION_HORIZON", 50),
+    )
     if _TELE_GSY_PI0_UR5E_LORA
-    else pi0_config.Pi0Config()
+    else pi0_config.Pi0Config(action_horizon=_tele_gsy_env_int("PI0_UR5E_ACTION_HORIZON", 50))
 )
 
 _CONFIGS.append(

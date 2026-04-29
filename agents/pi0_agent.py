@@ -38,6 +38,11 @@ class Pi0Agent:
         reject_translation_delta: float = 0.25,
         action_chunk_size: int = 6,
         joint_ema_alpha: float = 0.35,
+        gripper_ema_alpha: float = 0.35,
+        gripper_close_threshold: float = 0.18,
+        gripper_open_threshold: float = 0.08,
+        gripper_min_hold_steps: int = 30,
+        debug_actions: bool = False,
     ):
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
@@ -52,8 +57,16 @@ class Pi0Agent:
         self.reject_translation_delta = reject_translation_delta
         self.action_chunk_size = max(int(action_chunk_size), 1)
         self.joint_ema_alpha = float(np.clip(joint_ema_alpha, 0.0, 1.0))
+        self.gripper_ema_alpha = float(np.clip(gripper_ema_alpha, 0.0, 1.0))
+        self.gripper_close_threshold = float(gripper_close_threshold)
+        self.gripper_open_threshold = float(gripper_open_threshold)
+        self.gripper_min_hold_steps = max(int(gripper_min_hold_steps), 0)
+        self.debug_actions = debug_actions
         self.action_queue: collections.deque[np.ndarray] = collections.deque()
         self.last_joint_action: np.ndarray | None = None
+        self.last_gripper_action: float | None = None
+        self.gripper_closed = False
+        self.gripper_hold_steps = 0
         self.control = get_reset_joints(ur_eef=predict_eef_delta)
         self.trigger_state = True
         self.control_active = True
@@ -69,6 +82,9 @@ class Pi0Agent:
         self.control = get_reset_joints(ur_eef=self.predict_eef_delta)
         self.action_queue.clear()
         self.last_joint_action = None
+        self.last_gripper_action = None
+        self.gripper_closed = False
+        self.gripper_hold_steps = 0
         reset = getattr(self.client, "reset", None)
         if callable(reset):
             reset()
@@ -144,6 +160,33 @@ class Pi0Agent:
                 self.action_queue.append(np.asarray(action, dtype=np.float32).reshape(-1))
         return self.action_queue.popleft()
 
+    def _stabilize_gripper(self, raw_gripper: float) -> float:
+        raw_gripper = float(np.clip(raw_gripper, self.config.action_limits["min_gripper"], self.config.action_limits["max_gripper"]))
+        previous = raw_gripper if self.last_gripper_action is None else self.last_gripper_action
+
+        if self.gripper_closed:
+            self.gripper_hold_steps += 1
+            can_release = self.gripper_hold_steps >= self.gripper_min_hold_steps
+            if raw_gripper <= self.gripper_open_threshold and can_release:
+                self.gripper_closed = False
+                self.gripper_hold_steps = 0
+                target = raw_gripper
+            else:
+                target = max(previous, raw_gripper, self.gripper_close_threshold)
+        elif raw_gripper >= self.gripper_close_threshold:
+            self.gripper_closed = True
+            self.gripper_hold_steps = 0
+            target = raw_gripper
+        elif raw_gripper <= self.gripper_open_threshold:
+            target = raw_gripper
+        else:
+            target = previous
+
+        smoothed = self.gripper_ema_alpha * target + (1.0 - self.gripper_ema_alpha) * previous
+        smoothed = float(np.clip(smoothed, self.config.action_limits["min_gripper"], self.config.action_limits["max_gripper"]))
+        self.last_gripper_action = smoothed
+        return smoothed
+
     def act(self, obs: Dict[str, Any]) -> np.ndarray:
         raw_action = self._next_raw_action(obs)
         if self.predict_eef_delta and raw_action.shape[0] >= 3:
@@ -157,6 +200,16 @@ class Pi0Agent:
                 )
         if self.predict_eef_delta:
             action = clip_pi0_action(raw_action, self.config.action_limits)
+            if action.shape[0] >= 7:
+                action[6] = self._stabilize_gripper(float(action[6]))
+                if self.debug_actions:
+                    print(
+                        "[pi0] gripper",
+                        f"raw={float(raw_action[6]):.3f}",
+                        f"cmd={float(action[6]):.3f}",
+                        f"closed={self.gripper_closed}",
+                        f"hold={self.gripper_hold_steps}",
+                    )
             curr_eef_pose = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
             return get_eef_pose(curr_eef_pose, action)
 

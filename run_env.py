@@ -936,6 +936,11 @@ class Args:
     pi0_wrist_camera_index: int = 0
     pi0_action_chunk_size: int = 6
     pi0_joint_ema_alpha: float = 0.35
+    pi0_gripper_ema_alpha: float = 0.35
+    pi0_gripper_close_threshold: float = 0.18
+    pi0_gripper_open_threshold: float = 0.08
+    pi0_gripper_min_hold_steps: int = 30
+    pi0_debug_actions: bool = False
     safe_max_joint_delta: float = 0.03
     safe_max_hand_delta: float = 0.03
 
@@ -1056,6 +1061,11 @@ def main(args):
             prompt=args.pi0_prompt,
             action_chunk_size=args.pi0_action_chunk_size,
             joint_ema_alpha=args.pi0_joint_ema_alpha,
+            gripper_ema_alpha=args.pi0_gripper_ema_alpha,
+            gripper_close_threshold=args.pi0_gripper_close_threshold,
+            gripper_open_threshold=args.pi0_gripper_open_threshold,
+            gripper_min_hold_steps=args.pi0_gripper_min_hold_steps,
+            debug_actions=args.pi0_debug_actions,
         )
         print(f"pi0 agent created: ws://{pi0_host}:{pi0_port}")
     else:

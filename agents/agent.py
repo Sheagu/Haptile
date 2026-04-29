@@ -71,33 +71,39 @@ class SafetyWrapper:
         action = agent.act(obs)
         if eef:
             eef_pose = obs["ee_pos_quat"]
-            left_eef_pos = eef_pose[:3]
-            right_eef_pos = eef_pose[6:9]
-            left_eef_target = action[:3]
-            right_eef_target = action[12:15]
-            if np.linalg.norm(left_eef_pos - left_eef_target) > 0.5:
-                print("Left EEF action is too big")
-                print(
-                    f"Left EEF pos: {left_eef_pos}, target: {left_eef_target}, diff: {left_eef_pos - left_eef_target}"
-                )
-            if np.linalg.norm(right_eef_pos - right_eef_target) > 0.5:
-                print("Right EEF action is too big")
-                print(
-                    f"Right EEF pos: {right_eef_pos}, target: {right_eef_target}, diff: {right_eef_pos - right_eef_target}"
-                )
+            if len(action) < 14:
+                eef_pos = eef_pose[:3]
+                eef_target = action[:3]
+                if np.linalg.norm(eef_pos - eef_target) > 0.5:
+                    print("EEF action is too big")
+                    print(f"EEF pos: {eef_pos}, target: {eef_target}, diff: {eef_pos - eef_target}")
+                action[:3] = np.clip(eef_target, eef_pos - self.delta, eef_pos + self.delta)
+            else:
+                left_eef_pos = eef_pose[:3]
+                right_eef_pos = eef_pose[6:9]
+                left_eef_target = action[:3]
+                right_eef_target = action[12:15]
+                if np.linalg.norm(left_eef_pos - left_eef_target) > 0.5:
+                    print("Left EEF action is too big")
+                    print(
+                        f"Left EEF pos: {left_eef_pos}, target: {left_eef_target}, diff: {left_eef_pos - left_eef_target}"
+                    )
+                if np.linalg.norm(right_eef_pos - right_eef_target) > 0.5:
+                    print("Right EEF action is too big")
+                    print(
+                        f"Right EEF pos: {right_eef_pos}, target: {right_eef_target}, diff: {right_eef_pos - right_eef_target}"
+                    )
 
-            left_eef_target = np.clip(
-                left_eef_target,
-                left_eef_pos - self.delta,
-                left_eef_pos + self.delta,
-            )
-            right_eef_target = np.clip(
-                right_eef_target,
-                right_eef_pos - self.delta,
-                right_eef_pos + self.delta,
-            )
-            action[:3] = left_eef_target
-            action[12:15] = right_eef_target
+                action[:3] = np.clip(
+                    left_eef_target,
+                    left_eef_pos - self.delta,
+                    left_eef_pos + self.delta,
+                )
+                action[12:15] = np.clip(
+                    right_eef_target,
+                    right_eef_pos - self.delta,
+                    right_eef_pos + self.delta,
+                )
         else:
             # check if action is too big
             if (np.abs(action[self.ur_idx] - joints[self.ur_idx]) > self.delta).any():

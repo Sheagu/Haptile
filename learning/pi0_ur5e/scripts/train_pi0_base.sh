@@ -11,7 +11,9 @@ CONFIG_NAME="pi0_ur5e_cup"
 EXP_NAME="ur5e_cup_pi0_base"
 STEPS="3000"
 BATCH_SIZE="16"
+ACTION_HORIZON="50"
 LORA="true"
+XLA_PREALLOCATE="unset"
 WANDB="false"
 RESUME="false"
 OVERWRITE="true"
@@ -30,7 +32,9 @@ while [[ $# -gt 0 ]]; do
     --exp-name) EXP_NAME="$2"; shift 2 ;;
     --steps) STEPS="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
+    --action-horizon) ACTION_HORIZON="$2"; shift 2 ;;
     --lora) LORA="$2"; shift 2 ;;
+    --xla-preallocate) XLA_PREALLOCATE="$2"; shift 2 ;;
     --wandb) WANDB="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
     --overwrite) OVERWRITE="$2"; shift 2 ;;
@@ -92,11 +96,17 @@ export PI0_UR5E_ASSET_ID="$LEROBOT_REPO_ID"
 export PI0_UR5E_STATE_DIM="$STATE_DIM"
 export PI0_UR5E_TRAIN_STEPS="$STEPS"
 export PI0_UR5E_BATCH_SIZE="$BATCH_SIZE"
+export PI0_UR5E_ACTION_HORIZON="$ACTION_HORIZON"
 export PI0_UR5E_LORA="$LORA"
 export PI0_UR5E_CAMERA_PADDING="$CAMERA_PADDING"
 export PI0_UR5E_DEFAULT_PROMPT="$DEFAULT_PROMPT"
 export PI0_UR5E_ASSETS_BASE_DIR="$OUTPUT_DIR/assets"
 export PI0_UR5E_CHECKPOINT_BASE_DIR="$OUTPUT_DIR/checkpoints"
+case "$XLA_PREALLOCATE" in
+  unset|"") unset XLA_PYTHON_CLIENT_PREALLOCATE ;;
+  true|false) export XLA_PYTHON_CLIENT_PREALLOCATE="$XLA_PREALLOCATE" ;;
+  *) echo "Invalid --xla-preallocate: $XLA_PREALLOCATE (expected true, false, or unset)" >&2; exit 2 ;;
+esac
 export XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.9}"
 if [[ "$WANDB" != "true" ]]; then
   export WANDB_MODE=disabled
@@ -116,11 +126,14 @@ fi
 echo "OpenPI root: $OPENPI_ROOT"
 echo "Dataset root: $DATASET_ROOT"
 echo "State dim: $STATE_DIM"
+echo "Action horizon: $ACTION_HORIZON"
 echo "Compute norm stats command:"
+printf 'XLA_PYTHON_CLIENT_PREALLOCATE=%q ' "${XLA_PYTHON_CLIENT_PREALLOCATE:-<unset>}"
 printf 'XLA_PYTHON_CLIENT_MEM_FRACTION=%q ' "$XLA_PYTHON_CLIENT_MEM_FRACTION"
 printf '%q ' "${COMPUTE_CMD[@]}"
 printf '\n'
 echo "Train command:"
+printf 'XLA_PYTHON_CLIENT_PREALLOCATE=%q ' "${XLA_PYTHON_CLIENT_PREALLOCATE:-<unset>}"
 printf 'XLA_PYTHON_CLIENT_MEM_FRACTION=%q ' "$XLA_PYTHON_CLIENT_MEM_FRACTION"
 printf '%q ' "${TRAIN_CMD[@]}"
 printf '\n'

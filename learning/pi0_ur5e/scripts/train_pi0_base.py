@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument("--checkpoint", default="pi0_base")
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--action-horizon", type=int, default=50)
     parser.add_argument("--lora", default="true")
     parser.add_argument("--include-tactile", default="false")
     parser.add_argument("--wandb", default="false")
@@ -74,6 +75,7 @@ def main():
             "PI0_UR5E_ASSET_ID": args.lerobot_repo_id,
             "PI0_UR5E_TRAIN_STEPS": str(args.steps),
             "PI0_UR5E_BATCH_SIZE": str(args.batch_size),
+            "PI0_UR5E_ACTION_HORIZON": str(args.action_horizon),
             "PI0_UR5E_LORA": str(args.lora).lower(),
             "PI0_UR5E_ASSETS_BASE_DIR": str((args.output_dir / "assets").resolve()),
             "PI0_UR5E_CHECKPOINT_BASE_DIR": str((args.output_dir / "checkpoints").resolve()),
