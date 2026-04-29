@@ -117,7 +117,11 @@ class SafetyWrapper:
             )
 
         if self.hand_idx is not None:
-            joint_cmd = self._hand_pos_to_cmd(joints[self.hand_idx])
+            joint_cmd = (
+                self._hand_pos_to_cmd(joints[self.hand_idx])
+                if len(self.hand_idx) == self.num_hand_dofs
+                else joints[self.hand_idx]
+            )
             action[self.hand_idx] = joint_cmd + np.clip(
                 action[self.hand_idx] - joint_cmd, -self.hand_delta, self.hand_delta
             )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 from typing import Any, Dict
 
 import cv2
@@ -35,6 +36,8 @@ class Pi0Agent:
         gripper_min: float = 0.0,
         gripper_max: float = 1.0,
         reject_translation_delta: float = 0.25,
+        action_chunk_size: int = 6,
+        joint_ema_alpha: float = 0.35,
     ):
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
@@ -47,6 +50,10 @@ class Pi0Agent:
         self.config.action_limits["min_gripper"] = gripper_min
         self.config.action_limits["max_gripper"] = gripper_max
         self.reject_translation_delta = reject_translation_delta
+        self.action_chunk_size = max(int(action_chunk_size), 1)
+        self.joint_ema_alpha = float(np.clip(joint_ema_alpha, 0.0, 1.0))
+        self.action_queue: collections.deque[np.ndarray] = collections.deque()
+        self.last_joint_action: np.ndarray | None = None
         self.control = get_reset_joints(ur_eef=predict_eef_delta)
         self.trigger_state = True
         self.control_active = True
@@ -60,6 +67,8 @@ class Pi0Agent:
 
     def reset_temporal_state(self) -> None:
         self.control = get_reset_joints(ur_eef=self.predict_eef_delta)
+        self.action_queue.clear()
+        self.last_joint_action = None
         reset = getattr(self.client, "reset", None)
         if callable(reset):
             reset()
@@ -126,8 +135,17 @@ class Pi0Agent:
             prompt=self.prompt,
         )
 
+    def _next_raw_action(self, obs: Dict[str, Any]) -> np.ndarray:
+        if not self.action_queue:
+            chunk = np.asarray(self.client.action_chunk(self._policy_observation(obs)), dtype=np.float32)
+            if chunk.ndim == 1:
+                chunk = chunk[None, :]
+            for action in chunk[: self.action_chunk_size]:
+                self.action_queue.append(np.asarray(action, dtype=np.float32).reshape(-1))
+        return self.action_queue.popleft()
+
     def act(self, obs: Dict[str, Any]) -> np.ndarray:
-        raw_action = np.asarray(self.client.act(self._policy_observation(obs)), dtype=np.float32).reshape(-1)
+        raw_action = self._next_raw_action(obs)
         if self.predict_eef_delta and raw_action.shape[0] >= 3:
             max_xyz = float(np.max(np.abs(raw_action[:3])))
             if max_xyz > self.reject_translation_delta:
@@ -148,5 +166,8 @@ class Pi0Agent:
                 "pi0 without _eef expects a joint-space policy output matching joint_positions. "
                 f"Got action shape {action.shape}; use --agent pi0_eef for the current ee_delta_6d_gripper policy."
             )
+        if self.last_joint_action is not None and self.last_joint_action.shape == action.shape:
+            action = self.joint_ema_alpha * action + (1.0 - self.joint_ema_alpha) * self.last_joint_action
         action[-1] = np.clip(action[-1], self.config.action_limits["min_gripper"], self.config.action_limits["max_gripper"])
+        self.last_joint_action = action.copy()
         return action.astype(np.float32)

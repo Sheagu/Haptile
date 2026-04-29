@@ -934,6 +934,10 @@ class Args:
     pi0_state_dim: int = 7
     pi0_base_camera_index: int = 1
     pi0_wrist_camera_index: int = 0
+    pi0_action_chunk_size: int = 6
+    pi0_joint_ema_alpha: float = 0.35
+    safe_max_joint_delta: float = 0.03
+    safe_max_hand_delta: float = 0.03
 
     temporal_ensemble_mode: str = "avg"
     temporal_ensemble_act_tau: float = 0.5
@@ -1050,6 +1054,8 @@ def main(args):
             base_camera_index=args.pi0_base_camera_index,
             wrist_camera_index=args.pi0_wrist_camera_index,
             prompt=args.pi0_prompt,
+            action_chunk_size=args.pi0_action_chunk_size,
+            joint_ema_alpha=args.pi0_joint_ema_alpha,
         )
         print(f"pi0 agent created: ws://{pi0_host}:{pi0_port}")
     else:
@@ -1131,10 +1137,12 @@ def main(args):
     hand_idx = [len(joints) - 1] if len(joints) == 7 else None
 
     if args.safe:
-        max_joint_delta = 0.5
-        max_hand_delta = 0.1
         safety_wrapper = SafetyWrapper(
-            ur_idx, hand_idx, agent, delta=max_joint_delta, hand_delta=max_hand_delta
+            ur_idx,
+            hand_idx,
+            agent,
+            delta=args.safe_max_joint_delta,
+            hand_delta=args.safe_max_hand_delta,
         )
 
     print(f"Start pos: {len(start_pos)}", f"Joints: {len(joints)}")

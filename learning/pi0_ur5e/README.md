@@ -304,6 +304,10 @@ For that legacy checkpoint, run the robot side in joint-position mode:
 python run_env.py \
   --agent pi0 \
   --safe \
+  --safe-max-joint-delta 0.03 \
+  --safe-max-hand-delta 0.03 \
+  --pi0-action-chunk-size 6 \
+  --pi0-joint-ema-alpha 0.35 \
   --pi0-policy-host <gpu_computer_ip> \
   --pi0-policy-port 8000
 ```
