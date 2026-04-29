@@ -3,6 +3,62 @@ from __future__ import annotations
 import numpy as np
 
 
+def _skew(vector: np.ndarray) -> np.ndarray:
+    x, y, z = vector
+    return np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]], dtype=np.float32)
+
+
+def _rotvec_to_matrix(rotvec: np.ndarray) -> np.ndarray:
+    rotvec = np.asarray(rotvec, dtype=np.float32)
+    angle = float(np.linalg.norm(rotvec))
+    if angle < 1e-8:
+        return np.eye(3, dtype=np.float32) + _skew(rotvec)
+    axis = rotvec / angle
+    axis_skew = _skew(axis)
+    return (
+        np.eye(3, dtype=np.float32)
+        + np.sin(angle) * axis_skew
+        + (1.0 - np.cos(angle)) * (axis_skew @ axis_skew)
+    ).astype(np.float32)
+
+
+def _matrix_to_rotvec(matrix: np.ndarray) -> np.ndarray:
+    matrix = np.asarray(matrix, dtype=np.float32)
+    cos_angle = float((np.trace(matrix) - 1.0) * 0.5)
+    cos_angle = float(np.clip(cos_angle, -1.0, 1.0))
+    angle = float(np.arccos(cos_angle))
+    if angle < 1e-8:
+        return np.array(
+            [
+                (matrix[2, 1] - matrix[1, 2]) * 0.5,
+                (matrix[0, 2] - matrix[2, 0]) * 0.5,
+                (matrix[1, 0] - matrix[0, 1]) * 0.5,
+            ],
+            dtype=np.float32,
+        )
+    if np.pi - angle < 1e-5:
+        axis = np.sqrt(np.maximum(np.diag(matrix) + 1.0, 0.0) * 0.5)
+        axis[0] = np.copysign(axis[0], matrix[2, 1] - matrix[1, 2])
+        axis[1] = np.copysign(axis[1], matrix[0, 2] - matrix[2, 0])
+        axis[2] = np.copysign(axis[2], matrix[1, 0] - matrix[0, 1])
+        norm = np.linalg.norm(axis)
+        if norm < 1e-8:
+            return np.zeros(3, dtype=np.float32)
+        return (axis / norm * angle).astype(np.float32)
+    return (
+        angle
+        / (2.0 * np.sin(angle))
+        * np.array(
+            [
+                matrix[2, 1] - matrix[1, 2],
+                matrix[0, 2] - matrix[2, 0],
+                matrix[1, 0] - matrix[0, 1],
+            ],
+            dtype=np.float32,
+        )
+    ).astype(np.float32)
+
+
 def ensure_2d(array: np.ndarray | None, width: int | None = None) -> np.ndarray | None:
     if array is None:
         return None
@@ -17,7 +73,11 @@ def absolute_pose_to_delta_action(poses: np.ndarray, gripper: np.ndarray | None 
     if poses.ndim != 2 or poses.shape[1] < 6:
         raise ValueError(f"Expected absolute poses with shape [T, >=6], got {poses.shape}")
     delta = np.zeros((poses.shape[0], 6), dtype=np.float32)
-    delta[:-1] = poses[1:, :6] - poses[:-1, :6]
+    delta[:-1, :3] = poses[1:, :3] - poses[:-1, :3]
+    for idx in range(len(poses) - 1):
+        current_rot = _rotvec_to_matrix(poses[idx, 3:6])
+        next_rot = _rotvec_to_matrix(poses[idx + 1, 3:6])
+        delta[idx, 3:6] = _matrix_to_rotvec(next_rot @ current_rot.T)
     if gripper is None:
         grip = poses[:, 6:7] if poses.shape[1] > 6 else np.zeros((poses.shape[0], 1), dtype=np.float32)
     else:
@@ -57,8 +117,9 @@ def build_action(raw_action: np.ndarray | None, state: np.ndarray, gripper: np.n
     else:
         action = state
     if action_mode == "ee_delta_6d_gripper":
-        if raw_action is not None and action.shape[1] == 7:
-            return action.astype(np.float32)
+        # For this repository's teleop logs, the saved `control` field may be a
+        # joint command or an absolute target. The reliable source for EEF deltas
+        # is the consecutive TCP pose series stored in state.
         return absolute_pose_to_delta_action(state[:, :6], gripper)
     if action_mode == "ee_absolute_6d_gripper":
         grip = gripper if gripper is not None else action[:, 6:7] if action.shape[1] > 6 else np.zeros((len(action), 1), dtype=np.float32)

@@ -9,8 +9,8 @@ from agents.dp_agent import get_eef_pose, get_reset_joints
 from learning.pi0_ur5e.pi0_ur5e.policy_client import (
     WebsocketPolicyClient,
     build_policy_observation,
-    safe_action,
 )
+from learning.pi0_ur5e.pi0_ur5e.transforms import clip_pi0_action
 from learning.pi0_ur5e.pi0_ur5e.schema import Pi0Ur5eConfig
 
 
@@ -34,6 +34,7 @@ class Pi0Agent:
         prompt: str | None = None,
         gripper_min: float = 0.0,
         gripper_max: float = 1.0,
+        reject_translation_delta: float = 0.25,
     ):
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
@@ -45,6 +46,7 @@ class Pi0Agent:
         self.prompt = prompt or self.config.default_prompt
         self.config.action_limits["min_gripper"] = gripper_min
         self.config.action_limits["max_gripper"] = gripper_max
+        self.reject_translation_delta = reject_translation_delta
         self.control = get_reset_joints(ur_eef=predict_eef_delta)
         self.trigger_state = True
         self.control_active = True
@@ -125,12 +127,22 @@ class Pi0Agent:
         )
 
     def act(self, obs: Dict[str, Any]) -> np.ndarray:
-        action = safe_action(self.client, self._policy_observation(obs), self.config.action_limits)
-        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        raw_action = np.asarray(self.client.act(self._policy_observation(obs)), dtype=np.float32).reshape(-1)
+        if self.predict_eef_delta and raw_action.shape[0] >= 3:
+            max_xyz = float(np.max(np.abs(raw_action[:3])))
+            if max_xyz > self.reject_translation_delta:
+                raise RuntimeError(
+                    "pi0 policy produced an unsafe EEF delta before clipping: "
+                    f"xyz={raw_action[:3].tolist()}. This usually means the checkpoint was trained "
+                    "with absolute/joint actions instead of ee_delta_6d_gripper. Stop robot rollout, "
+                    "reconvert the dataset, and retrain."
+                )
         if self.predict_eef_delta:
+            action = clip_pi0_action(raw_action, self.config.action_limits)
             curr_eef_pose = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
             return get_eef_pose(curr_eef_pose, action)
 
+        action = raw_action
         if len(action) != len(np.asarray(obs["joint_positions"]).reshape(-1)):
             raise ValueError(
                 "pi0 without _eef expects a joint-space policy output matching joint_positions. "

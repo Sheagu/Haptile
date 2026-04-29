@@ -213,7 +213,9 @@ python run_env.py \
   --pi0-policy-port 8000
 ```
 
-Use `pi0_eef` for the current `pi0_ur5e_cup` policy because it was trained with `ee_delta_6d_gripper` actions. The plain `pi0` branch is present for future joint-space pi0 checkpoints, but it will reject the current EEF-delta action shape.
+Use `pi0_eef` for datasets converted after the action fix, where actions are true `ee_delta_6d_gripper` values.
+
+Legacy checkpoint note: older `grab_03_lerobot_train` checkpoints were trained from the saved `control` field, which is a joint-position command, not an EEF delta. Those checkpoints must be deployed with `--agent pi0 --safe`, not `--agent pi0_eef`. Treat this only as a stopgap; the recommended path is to retrain on `grab_03_lerobot_train_fixed`.
 
 Real robot execution is intentionally disabled in the generic adapter. A project-specific wrapper must verify action clipping, workspace bounds, emergency stop, max step delta, and gripper range before enabling `--allow-real-robot true`.
 
@@ -294,4 +296,14 @@ python learning/pi0_ur5e/scripts/serve_policy.py \
   --checkpoint-dir data_split/grab_03/pi0_grab_03/checkpoints/pi0_ur5e_cup/ur5e_grab_03_pi0_base/9999 \
   --dataset-root data_split/grab_03/grab_03_lerobot_train \
   --port 8000
+```
+
+For that legacy checkpoint, run the robot side in joint-position mode:
+
+```bash
+python run_env.py \
+  --agent pi0 \
+  --safe \
+  --pi0-policy-host <gpu_computer_ip> \
+  --pi0-policy-port 8000
 ```
