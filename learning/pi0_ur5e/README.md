@@ -272,3 +272,26 @@ Base pi0 has no tactile pretraining, so compare no-tactile and tactile runs befo
 - Gripper closes early/late: inspect timestamp order and `gripper_position`/action alignment.
 - Loss looks normal but rollout is poor: check normalization and action denormalization in OpenPI.
 - Tactile makes performance worse: train a no-tactile baseline first, then run tactile ablations.
+
+
+## An example
+
+### Training
+```bash
+bash learning/pi0_ur5e/scripts/train_pi0_base.sh   --dataset-root data_split/grab_03/grab_03_lerobot_train   --output-dir data_split/grab_03/pi0_grab_03   --openpi-root /home/rpl/yongqiang/openpi   --repo-id local/pi0_ur5e_grab_03   --exp-name ur5e_grab_03_pi0_base   --steps 10000   --batch-size 16   --lora true --resume True
+```
+
+### Deployment
+
+#### GPU-serer
+```bash
+cd /home/rpl/yongqiang/tele-gsy
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
+python learning/pi0_ur5e/scripts/serve_policy.py \
+  --openpi-root /home/rpl/yongqiang/openpi \
+  --config-name pi0_ur5e_cup \
+  --checkpoint-dir data_split/grab_03/pi0_grab_03/checkpoints/pi0_ur5e_cup/ur5e_grab_03_pi0_base/9999 \
+  --dataset-root data_split/grab_03/grab_03_lerobot_train \
+  --port 8000
+```
