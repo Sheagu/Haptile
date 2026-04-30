@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import collections
+import threading
+import time
 from typing import Any, Dict
 
 import cv2
@@ -43,6 +45,8 @@ class Pi0Agent:
         gripper_open_threshold: float = 0.08,
         gripper_min_hold_steps: int = 30,
         debug_actions: bool = False,
+        async_prefetch: bool = True,
+        prefetch_threshold: int = 2,
     ):
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
@@ -62,7 +66,13 @@ class Pi0Agent:
         self.gripper_open_threshold = float(gripper_open_threshold)
         self.gripper_min_hold_steps = max(int(gripper_min_hold_steps), 0)
         self.debug_actions = debug_actions
+        self.async_prefetch = bool(async_prefetch)
+        self.prefetch_threshold = max(int(prefetch_threshold), 0)
         self.action_queue: collections.deque[np.ndarray] = collections.deque()
+        self._prefetch_thread: threading.Thread | None = None
+        self._prefetch_result: np.ndarray | None = None
+        self._prefetch_error: BaseException | None = None
+        self._prefetch_lock = threading.Lock()
         self.last_joint_action: np.ndarray | None = None
         self.last_gripper_action: float | None = None
         self.gripper_closed = False
@@ -79,6 +89,7 @@ class Pi0Agent:
             )
 
     def reset_temporal_state(self) -> None:
+        self._finish_prefetch_blocking()
         self.control = get_reset_joints(ur_eef=self.predict_eef_delta)
         self.action_queue.clear()
         self.last_joint_action = None
@@ -151,14 +162,88 @@ class Pi0Agent:
             prompt=self.prompt,
         )
 
+    def _request_action_chunk(self, policy_obs: dict[str, Any], *, source: str) -> np.ndarray:
+        start = time.perf_counter()
+        chunk = np.asarray(self.client.action_chunk(policy_obs), dtype=np.float32)
+        latency = time.perf_counter() - start
+        print(f"[pi0] action_chunk latency ({source}): {latency:.3f}s shape={tuple(chunk.shape)}")
+        return chunk
+
+    def _enqueue_action_chunk(self, chunk: np.ndarray) -> None:
+        if chunk.ndim == 1:
+            chunk = chunk[None, :]
+        selected = chunk[: self.action_chunk_size]
+        if len(selected) == 0:
+            raise ValueError(f"Policy returned an empty action chunk with shape {chunk.shape}")
+        for action in selected:
+            self.action_queue.append(np.asarray(action, dtype=np.float32).reshape(-1))
+
+    def _consume_prefetch_if_ready(self) -> None:
+        thread = self._prefetch_thread
+        if thread is not None and thread.is_alive():
+            return
+        if thread is not None:
+            thread.join()
+            self._prefetch_thread = None
+
+        with self._prefetch_lock:
+            result = self._prefetch_result
+            error = self._prefetch_error
+            self._prefetch_result = None
+            self._prefetch_error = None
+
+        if error is not None:
+            raise RuntimeError("Asynchronous pi0 action prefetch failed") from error
+        if result is not None:
+            self._enqueue_action_chunk(result)
+
+    def _finish_prefetch_blocking(self) -> None:
+        thread = self._prefetch_thread
+        if thread is not None:
+            thread.join()
+            self._prefetch_thread = None
+        with self._prefetch_lock:
+            self._prefetch_result = None
+            self._prefetch_error = None
+
+    def _start_prefetch_if_needed(self, obs: Dict[str, Any]) -> None:
+        if not self.async_prefetch or len(self.action_queue) > self.prefetch_threshold:
+            return
+        if self._prefetch_thread is not None:
+            return
+        with self._prefetch_lock:
+            if self._prefetch_result is not None or self._prefetch_error is not None:
+                return
+
+        policy_obs = self._policy_observation(obs)
+
+        def worker() -> None:
+            try:
+                result = self._request_action_chunk(policy_obs, source="prefetch")
+                with self._prefetch_lock:
+                    self._prefetch_result = result
+                    self._prefetch_error = None
+            except BaseException as exc:
+                with self._prefetch_lock:
+                    self._prefetch_result = None
+                    self._prefetch_error = exc
+
+        self._prefetch_thread = threading.Thread(target=worker, name="pi0-action-prefetch", daemon=True)
+        self._prefetch_thread.start()
+
     def _next_raw_action(self, obs: Dict[str, Any]) -> np.ndarray:
+        self._consume_prefetch_if_ready()
         if not self.action_queue:
-            chunk = np.asarray(self.client.action_chunk(self._policy_observation(obs)), dtype=np.float32)
-            if chunk.ndim == 1:
-                chunk = chunk[None, :]
-            for action in chunk[: self.action_chunk_size]:
-                self.action_queue.append(np.asarray(action, dtype=np.float32).reshape(-1))
-        return self.action_queue.popleft()
+            if self._prefetch_thread is not None:
+                print("[pi0] waiting for prefetched action_chunk")
+                self._prefetch_thread.join()
+                self._consume_prefetch_if_ready()
+            if not self.action_queue:
+                chunk = self._request_action_chunk(self._policy_observation(obs), source="sync")
+                self._enqueue_action_chunk(chunk)
+        action = self.action_queue.popleft()
+        self._start_prefetch_if_needed(obs)
+        return action
 
     def _stabilize_gripper(self, raw_gripper: float) -> float:
         raw_gripper = float(np.clip(raw_gripper, self.config.action_limits["min_gripper"], self.config.action_limits["max_gripper"]))

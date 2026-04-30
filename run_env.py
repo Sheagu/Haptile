@@ -941,6 +941,8 @@ class Args:
     pi0_gripper_open_threshold: float = 0.08
     pi0_gripper_min_hold_steps: int = 30
     pi0_debug_actions: bool = False
+    pi0_async_prefetch: bool = True
+    pi0_prefetch_threshold: int = 2
     safe_max_joint_delta: float = 0.03
     safe_max_hand_delta: float = 0.03
 
@@ -1066,6 +1068,8 @@ def main(args):
             gripper_open_threshold=args.pi0_gripper_open_threshold,
             gripper_min_hold_steps=args.pi0_gripper_min_hold_steps,
             debug_actions=args.pi0_debug_actions,
+            async_prefetch=args.pi0_async_prefetch,
+            prefetch_threshold=args.pi0_prefetch_threshold,
         )
         print(f"pi0 agent created: ws://{pi0_host}:{pi0_port}")
     else:
