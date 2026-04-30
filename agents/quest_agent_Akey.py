@@ -115,7 +115,7 @@ class SingleArmQuestAgent(Agent):
         which_hand: str = 'r',
         eef_control_mode: int = 0,
         verbose: bool = False,
-        use_vel_ik: bool = False,
+        use_vel_ik: bool = True,
         vel_ik_speed_scale: float = 0.95,
     ) -> None:
         """Interact with the robot using the quest controller.
@@ -293,54 +293,54 @@ class SingleArmQuestAgent(Agent):
                 next_ee_rot_ur = delta_rot_ur.T @ self.reference_ee_rot_ur
                 next_ee_pos_ur = delta_pos_ur + self.reference_ee_pos_ur
 
-                # if self.use_vel_ik:
-                #     next_ee_pos_mj = apply_transfer(ur2mj, next_ee_pos_ur)
-                #     next_ee_rot_mj = ur2mj[:3, :3] @ next_ee_rot_ur
+                if self.use_vel_ik:
+                    next_ee_pos_mj = apply_transfer(ur2mj, next_ee_pos_ur)
+                    next_ee_rot_mj = ur2mj[:3, :3] @ next_ee_rot_ur
 
-                #     err_rot_mj = next_ee_rot_mj @ np.linalg.inv(ee_rot_mj)
-                #     err_pos_mj = next_ee_pos_mj - ee_pos_mj
+                    err_rot_mj = next_ee_rot_mj @ np.linalg.inv(ee_rot_mj)
+                    err_pos_mj = next_ee_pos_mj - ee_pos_mj
 
-                #     print(err_pos_mj)
+                    print(err_pos_mj)
 
-                #     delta_qpos = velocity_ik(
-                #         self.physics,
-                #         "attachment_site",
-                #         err_rot_mj.flatten(),
-                #         err_pos_mj,
-                #         joint_names=[
-                #             "shoulder_pan_joint",
-                #             "shoulder_lift_joint",
-                #             "elbow_joint",
-                #             "wrist_1_joint",
-                #             "wrist_2_joint",
-                #             "wrist_3_joint",
-                #         ],
-                #     )
-
-                #     new_qpos = current_qpos + delta_qpos * self.vel_ik_speed_scale
-
-                # else:
-                target_quat = quaternion.as_float_array(
-                    quaternion.from_rotation_matrix(ur2mj[:3, :3] @ next_ee_rot_ur)
-                )
-                ik_result = qpos_from_site_pose(
-                    self.physics,
-                    "attachment_site",
-                    target_pos=apply_transfer(ur2mj, next_ee_pos_ur),
-                    target_quat=target_quat,
-                    tol=1e-14,
-                    max_steps=400,
-                )
-                self.physics.reset()
-                if ik_result.success:
-                    new_qpos = ik_result.qpos[:num_dof]
-                else:
-                    print("ik failed, using the original qpos")
-                    self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
-                        current_ee_pos_ur, current_ee_rot_ur
+                    delta_qpos = velocity_ik(
+                        self.physics,
+                        "attachment_site",
+                        err_rot_mj.flatten(),
+                        err_pos_mj,
+                        joint_names=[
+                            "shoulder_pan_joint",
+                            "shoulder_lift_joint",
+                            "elbow_joint",
+                            "wrist_1_joint",
+                            "wrist_2_joint",
+                            "wrist_3_joint",
+                        ],
                     )
-                    self.last_command_joint_state = arm_not_move_return.copy()
-                    return arm_not_move_return
+
+                    new_qpos = current_qpos + delta_qpos * self.vel_ik_speed_scale
+
+                else:
+                    target_quat = quaternion.as_float_array(
+                        quaternion.from_rotation_matrix(ur2mj[:3, :3] @ next_ee_rot_ur)
+                    )
+                    ik_result = qpos_from_site_pose(
+                        self.physics,
+                        "attachment_site",
+                        target_pos=apply_transfer(ur2mj, next_ee_pos_ur),
+                        target_quat=target_quat,
+                        tol=1e-14,
+                        max_steps=400,
+                    )
+                    self.physics.reset()
+                    if ik_result.success:
+                        new_qpos = ik_result.qpos[:num_dof]
+                    else:
+                        print("ik failed, using the original qpos")
+                        self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
+                            current_ee_pos_ur, current_ee_rot_ur
+                        )
+                        self.last_command_joint_state = arm_not_move_return.copy()
+                        return arm_not_move_return
                 command = np.concatenate([new_qpos, new_gripper_angle])
                 self.last_target_tcp_pose = _tcp_pose_from_pos_rot(
                     next_ee_pos_ur, next_ee_rot_ur
