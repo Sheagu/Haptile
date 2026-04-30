@@ -47,6 +47,8 @@ class Pi0Agent:
         debug_actions: bool = False,
         async_prefetch: bool = True,
         prefetch_threshold: int = 2,
+        eef_translation_scale: float = 1.0,
+        eef_rotation_scale: float = 1.0,
     ):
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
@@ -68,6 +70,8 @@ class Pi0Agent:
         self.debug_actions = debug_actions
         self.async_prefetch = bool(async_prefetch)
         self.prefetch_threshold = max(int(prefetch_threshold), 0)
+        self.eef_translation_scale = float(eef_translation_scale)
+        self.eef_rotation_scale = float(eef_rotation_scale)
         self.action_queue: collections.deque[np.ndarray] = collections.deque()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_result: np.ndarray | None = None
@@ -284,17 +288,28 @@ class Pi0Agent:
                     "reconvert the dataset, and retrain."
                 )
         if self.predict_eef_delta:
-            action = clip_pi0_action(raw_action, self.config.action_limits)
+            scaled_action = raw_action.copy()
+            if scaled_action.shape[0] >= 3:
+                scaled_action[:3] *= self.eef_translation_scale
+            if scaled_action.shape[0] >= 6:
+                scaled_action[3:6] *= self.eef_rotation_scale
+            action = clip_pi0_action(scaled_action, self.config.action_limits)
             if action.shape[0] >= 7:
                 action[6] = self._stabilize_gripper(float(action[6]))
-                if self.debug_actions:
-                    print(
-                        "[pi0] gripper",
-                        f"raw={float(raw_action[6]):.3f}",
-                        f"cmd={float(action[6]):.3f}",
-                        f"closed={self.gripper_closed}",
-                        f"hold={self.gripper_hold_steps}",
-                    )
+            if self.debug_actions:
+                print(
+                    "[pi0] action",
+                    f"raw_xyz={raw_action[:3].tolist() if raw_action.shape[0] >= 3 else []}",
+                    f"scaled_xyz={scaled_action[:3].tolist() if scaled_action.shape[0] >= 3 else []}",
+                    f"cmd_xyz={action[:3].tolist() if action.shape[0] >= 3 else []}",
+                    f"raw_rot={raw_action[3:6].tolist() if raw_action.shape[0] >= 6 else []}",
+                    f"scaled_rot={scaled_action[3:6].tolist() if scaled_action.shape[0] >= 6 else []}",
+                    f"cmd_rot={action[3:6].tolist() if action.shape[0] >= 6 else []}",
+                    f"gripper_raw={float(raw_action[6]):.3f}" if raw_action.shape[0] >= 7 else "gripper_raw=NA",
+                    f"gripper_cmd={float(action[6]):.3f}" if action.shape[0] >= 7 else "gripper_cmd=NA",
+                    f"closed={self.gripper_closed}",
+                    f"hold={self.gripper_hold_steps}",
+                )
             curr_eef_pose = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
             return get_eef_pose(curr_eef_pose, action)
 

@@ -943,6 +943,8 @@ class Args:
     pi0_debug_actions: bool = False
     pi0_async_prefetch: bool = True
     pi0_prefetch_threshold: int = 2
+    pi0_eef_translation_scale: float = 1.0
+    pi0_eef_rotation_scale: float = 1.0
     safe_max_joint_delta: float = 0.03
     safe_max_hand_delta: float = 0.03
 
@@ -1070,6 +1072,8 @@ def main(args):
             debug_actions=args.pi0_debug_actions,
             async_prefetch=args.pi0_async_prefetch,
             prefetch_threshold=args.pi0_prefetch_threshold,
+            eef_translation_scale=args.pi0_eef_translation_scale,
+            eef_rotation_scale=args.pi0_eef_rotation_scale,
         )
         print(f"pi0 agent created: ws://{pi0_host}:{pi0_port}")
     else:
