@@ -943,6 +943,9 @@ class Args:
     pi0_debug_actions: bool = False
     pi0_async_prefetch: bool = True
     pi0_prefetch_threshold: int = 2
+    pi0_include_tactile: bool = False
+    pi0_tactile_feature_mode: str = "none"
+    pi0_tactile_embedding_dim: int = 128
     pi0_eef_translation_scale: float = 1.0
     pi0_eef_rotation_scale: float = 1.0
     safe_max_joint_delta: float = 0.03
@@ -1072,6 +1075,9 @@ def main(args):
             debug_actions=args.pi0_debug_actions,
             async_prefetch=args.pi0_async_prefetch,
             prefetch_threshold=args.pi0_prefetch_threshold,
+            include_tactile=args.pi0_include_tactile,
+            tactile_feature_mode=args.pi0_tactile_feature_mode,
+            tactile_embedding_dim=args.pi0_tactile_embedding_dim,
             eef_translation_scale=args.pi0_eef_translation_scale,
             eef_rotation_scale=args.pi0_eef_rotation_scale,
         )
