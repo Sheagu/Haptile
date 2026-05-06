@@ -44,11 +44,12 @@ uv run python /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/scripts/convert_to_
   --task-name cup_pick_place \
   --repo-id local/pi0_ur5e_cup \
   --default-prompt "pick up the paper cup and place it on the target" \
+  --action-mode joint_position_gripper \
   --include-tactile false \
   --overwrite true
 ```
 
-Output is a real LeRobot v2 dataset with `meta/`, `data/*.parquet`, embedded images, and `conversion_report.json`. Images are resized to `224x224`. State and action are saved as `float32`. The default action mode is `ee_delta_6d_gripper` with `[dx, dy, dz, droll, dpitch, dyaw, gripper]`.
+Output is a real LeRobot v2 dataset with `meta/`, `data/*.parquet`, embedded images, and `conversion_report.json`. Images are resized to `224x224`. State and action are saved as `float32`. The default action mode is now DP-style `joint_position_gripper`: state is `joint_positions`, and action is the saved joint-space `control` command `[joint_0, ..., joint_5, gripper]`. Use `--action-mode ee_delta_6d_gripper` only for EEF-delta experiments.
 
 If OpenPI expects a third camera slot, `camera_padding_strategy` defaults to `duplicate_base`. Other options are `none`, `duplicate_wrist`, and `zeros`.
 
@@ -213,9 +214,9 @@ python run_env.py \
   --pi0-policy-port 8000
 ```
 
-Use `pi0_eef` for datasets converted after the action fix, where actions are true `ee_delta_6d_gripper` values.
+Use `pi0` for the DP-style joint-position checkpoint. Use `pi0_eef` only for datasets explicitly converted with `--action-mode ee_delta_6d_gripper`.
 
-Legacy checkpoint note: older `grab_03_lerobot_train` checkpoints were trained from the saved `control` field, which is a joint-position command, not an EEF delta. Those checkpoints must be deployed with `--agent pi0 --safe`, not `--agent pi0_eef`. Treat this only as a stopgap; the recommended path is to retrain on `grab_03_lerobot_train_fixed`.
+Checkpoint compatibility note: checkpoints trained from the saved `control` field are joint-position policies and must be deployed with `--agent pi0 --safe`, not `--agent pi0_eef`.
 
 Real robot execution is intentionally disabled in the generic adapter. A project-specific wrapper must verify action clipping, workspace bounds, emergency stop, max step delta, and gripper range before enabling `--allow-real-robot true`.
 
@@ -264,7 +265,19 @@ Default scripts do not command the UR5e. Validate in this order: dataset inspect
 
 ## Tactile
 
-First version does not feed raw tactile images to pi0. `tactile_features.py` converts tactile arrays to low-dimensional features such as contact flag, normal/tangential force proxies, slip score proxy, pressure means, pressure sum, and pressure center. These features are appended to `observation.state` only when `include_tactile=true` and `tactile_feature_mode=low_dim`.
+By default, pi0 training does not feed tactile images. `tactile_features.py` supports two state-append modes when `include_tactile=true`: `low_dim` converts tactile arrays such as `touch/force/pressure` to hand-built features, and `image_embedding` converts `tactile_left_rgb` / `tactile_right_rgb` frames to a fixed 64D or 128D embedding with the same deterministic encoder used by `Pi0Agent` at deployment.
+
+Example conversion with tactile image conditioning:
+
+```bash
+python learning/pi0_ur5e/scripts/convert_to_lerobot.py \
+  --input-root /path/to/raw_data \
+  --output-root /path/to/lerobot_dataset \
+  --include-tactile true \
+  --tactile-feature-mode image_embedding \
+  --tactile-embedding-dim 128 \
+  --overwrite true
+```
 
 Base pi0 has no tactile pretraining, so compare no-tactile and tactile runs before assuming tactile helps.
 
@@ -313,11 +326,11 @@ python learning/pi0_ur5e/scripts/serve_policy.py \
   --port 8000
 ```
 
-For the fixed EEF-delta checkpoint, run the robot side in EEF mode:
+For the DP-style joint-position checkpoint, run the robot side in joint mode:
 
 ```bash
 python run_env.py \
-  --agent pi0_eef \
+  --agent pi0 \
   --safe \
   --safe-max-joint-delta 0.03 \
   --safe-max-hand-delta 0.03 \
@@ -330,4 +343,4 @@ python run_env.py \
   --pi0-policy-port 8000
 ```
 
-For legacy checkpoints trained before the fixed EEF-delta conversion, run the robot side in joint-position mode with `--agent pi0 --safe`.
+For an EEF-delta checkpoint, run the robot side with `--agent pi0_eef --safe`.

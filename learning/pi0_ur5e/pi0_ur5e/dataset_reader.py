@@ -11,7 +11,7 @@ import numpy as np
 
 from .io_utils import decode_h5_video, load_pickle, load_yaml, parse_timestamp
 from .schema import Episode, Pi0Ur5eConfig
-from .tactile_features import tactile_to_features
+from .tactile_features import tactile_images_to_embeddings, tactile_to_features
 from .transforms import build_action
 
 
@@ -23,6 +23,8 @@ DEFAULT_FIELD_MAP = {
     "action": ["action", "control", "actions"],
     "gripper_state": ["gripper_state", "gripper_position"],
     "tactile": ["tactile", "touch", "force", "pressure"],
+    "tactile_left_rgb": ["tactile_left_rgb", "left_tactile_rgb", "observation.images.tactile_left_rgb"],
+    "tactile_right_rgb": ["tactile_right_rgb", "right_tactile_rgb", "observation.images.tactile_right_rgb"],
     "language_instruction": ["language_instruction", "prompt", "task"],
 }
 
@@ -34,11 +36,12 @@ class DatasetReader:
         if config:
             cfg.update(config)
         self.config = Pi0Ur5eConfig(
-            action_mode=cfg.get("action_mode", "ee_delta_6d_gripper"),
+            action_mode=cfg.get("action_mode", "joint_position_gripper"),
             image_size=tuple(cfg.get("image_size", [224, 224])),
             camera_padding_strategy=cfg.get("camera_padding_strategy", "duplicate_base"),
             include_tactile=bool(cfg.get("include_tactile", False)),
             tactile_feature_mode=cfg.get("tactile_feature_mode", "none"),
+            tactile_embedding_dim=int(cfg.get("tactile_embedding_dim", 128)),
             default_prompt=cfg.get("default_prompt", "pick up the paper cup and place it on the target"),
             hz=cfg.get("hz"),
             field_map=cfg.get("field_map", {}),
@@ -151,9 +154,7 @@ class DatasetReader:
         state = np.asarray(data[self._first_existing(data, "robot_state")], dtype=np.float32)
         gripper = np.asarray(data["gripper_state"], dtype=np.float32) if "gripper_state" in data else None
         action = build_action(np.asarray(data["action"], dtype=np.float32) if "action" in data else None, state, gripper, self.config.action_mode)
-        tactile = np.asarray(data["tactile"], dtype=np.float32) if "tactile" in data else None
-        if self.config.include_tactile and self.config.tactile_feature_mode == "low_dim":
-            tactile = tactile_to_features(tactile)
+        tactile = self._tactile_from_arrays(data)
         ep = Episode(path.stem, timestamps, data.get("base_rgb"), data.get("wrist_rgb"), state, action, gripper, tactile, prompt, {"source_path": str(path)})
         ep.validate()
         return ep
@@ -162,20 +163,20 @@ class DatasetReader:
         prompt = self._first_value(frames, "language_instruction") or self.config.default_prompt
         base = self._stack_or_paths(frames, "base_rgb")
         wrist = self._stack_or_paths(frames, "wrist_rgb")
-        state = self._numeric_series(frames, "ee_pose")
-        state_from_ee_pose = state is not None
-        if state is None:
+        if self.config.action_mode.startswith("joint_"):
             state = self._numeric_series(frames, "robot_state")
+        else:
+            state = self._numeric_series(frames, "ee_pose")
+            if state is None:
+                state = self._numeric_series(frames, "robot_state")
         if state is None:
             raise ValueError(f"{episode_id}: could not detect robot_state/ee pose fields")
         gripper = self._numeric_series(frames, "gripper_state")
-        if state_from_ee_pose and gripper is not None and state.shape[1] == 6:
+        if gripper is not None and state.shape[1] == 6:
             state = np.concatenate([state, gripper.reshape(len(state), -1)[:, :1]], axis=1)
         raw_action = self._numeric_series(frames, "action")
         action = build_action(raw_action, state, gripper, self.config.action_mode)
-        tactile = self._numeric_series(frames, "tactile")
-        if self.config.include_tactile and self.config.tactile_feature_mode == "low_dim":
-            tactile = tactile_to_features(tactile)
+        tactile = self._tactile_from_frames(frames)
         meta = {
             "task_name": metadata.get("task_name", ""),
             "success": metadata.get("success", None),
@@ -199,6 +200,8 @@ class DatasetReader:
                     "wrist_rgb": row.get("observation", {}).get("images", {}).get("wrist_rgb"),
                     "robot_state": row.get("observation", {}).get("state"),
                     "action": row.get("action"),
+                    "tactile_left_rgb": row.get("observation", {}).get("images", {}).get("tactile_left_rgb"),
+                    "tactile_right_rgb": row.get("observation", {}).get("images", {}).get("tactile_right_rgb"),
                     "language_instruction": row.get("language_instruction"),
                 })
             timestamps = np.asarray([row.get("timestamp", i) for i, row in enumerate(rows)], dtype=np.float64)
@@ -232,6 +235,12 @@ class DatasetReader:
                         "wrist_rgb": _image_to_hwc(item.get("observation.images.wrist_rgb")),
                         "robot_state": _to_numpy(item["observation.state"]),
                         "action": _to_numpy(item["action"]),
+                        "tactile_left_rgb": _image_to_hwc(item.get("observation.images.tactile_left_rgb"))
+                        if item.get("observation.images.tactile_left_rgb") is not None
+                        else None,
+                        "tactile_right_rgb": _image_to_hwc(item.get("observation.images.tactile_right_rgb"))
+                        if item.get("observation.images.tactile_right_rgb") is not None
+                        else None,
                         "language_instruction": item.get("task", self.config.default_prompt),
                     }
                 )
@@ -259,10 +268,44 @@ class DatasetReader:
                 if "." not in key:
                     keys.add(key)
         if self.config.include_tactile:
-            for key in self.field_map.get("tactile", []):
-                if "." not in key:
-                    keys.add(key)
+            tactile_fields = ["tactile"]
+            if self.config.tactile_feature_mode == "image_embedding":
+                tactile_fields = ["tactile_left_rgb", "tactile_right_rgb"]
+            for field in tactile_fields:
+                for key in self.field_map.get(field, []):
+                    if "." not in key:
+                        keys.add(key)
         return keys
+
+    def _tactile_from_arrays(self, data: Any) -> np.ndarray | None:
+        if not self.config.include_tactile:
+            return None
+        if self.config.tactile_feature_mode == "image_embedding":
+            return tactile_images_to_embeddings(
+                data["tactile_left_rgb"] if "tactile_left_rgb" in data else None,
+                data["tactile_right_rgb"] if "tactile_right_rgb" in data else None,
+                embedding_dim=self.config.tactile_embedding_dim,
+            )
+        tactile = np.asarray(data["tactile"], dtype=np.float32) if "tactile" in data else None
+        if self.config.tactile_feature_mode == "low_dim":
+            return tactile_to_features(tactile)
+        return tactile
+
+    def _tactile_from_frames(self, frames: list[dict[str, Any]]) -> np.ndarray | None:
+        if not self.config.include_tactile:
+            return None
+        if self.config.tactile_feature_mode == "image_embedding":
+            left = self._stack_or_paths(frames, "tactile_left_rgb")
+            right = self._stack_or_paths(frames, "tactile_right_rgb")
+            return tactile_images_to_embeddings(
+                left,
+                right,
+                embedding_dim=self.config.tactile_embedding_dim,
+            )
+        tactile = self._numeric_series(frames, "tactile")
+        if self.config.tactile_feature_mode == "low_dim":
+            return tactile_to_features(tactile)
+        return tactile
 
     def _first_value(self, frames: list[dict[str, Any]], canonical: str) -> Any:
         for frame in frames:

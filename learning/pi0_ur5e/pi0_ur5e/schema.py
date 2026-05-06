@@ -41,11 +41,12 @@ class Episode:
 
 @dataclass
 class Pi0Ur5eConfig:
-    action_mode: ActionMode = "ee_delta_6d_gripper"
+    action_mode: ActionMode = "joint_position_gripper"
     image_size: tuple[int, int] = (224, 224)
     camera_padding_strategy: str = "duplicate_base"
     include_tactile: bool = False
     tactile_feature_mode: str = "none"
+    tactile_embedding_dim: int = 128
     default_prompt: str = "pick up the paper cup and place it on the target"
     hz: float | None = None
     field_map: dict[str, Any] = field(default_factory=dict)

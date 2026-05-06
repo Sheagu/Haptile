@@ -7,6 +7,8 @@
 
 import os as _tele_gsy_os
 import numpy as _tele_gsy_np
+import flax.traverse_util as _tele_gsy_traverse_util
+import openpi.shared.nnx_utils as _tele_gsy_nnx_utils
 
 
 def _tele_gsy_env_bool(name: str, default: bool) -> bool:
@@ -31,6 +33,36 @@ def _tele_gsy_parse_image(image) -> _tele_gsy_np.ndarray:
     if image.ndim == 3 and image.shape[0] in (1, 3) and image.shape[-1] not in (1, 3):
         image = _tele_gsy_np.moveaxis(image, 0, -1)
     return image.astype(_tele_gsy_np.uint8)
+
+
+@dataclasses.dataclass(frozen=True)
+class TeleGsyShapeTolerantCheckpointWeightLoader(weight_loaders.WeightLoader):
+    params_path: str
+
+    def load(self, params):
+        loaded_params = _model.restore_params(
+            weight_loaders.download.maybe_download(self.params_path),
+            restore_type=_tele_gsy_np.ndarray,
+        )
+        flat_ref = _tele_gsy_traverse_util.flatten_dict(params, sep="/")
+        flat_loaded = _tele_gsy_traverse_util.flatten_dict(loaded_params, sep="/")
+        result = {}
+        for key, value in flat_loaded.items():
+            if key not in flat_ref:
+                continue
+            if value.shape != flat_ref[key].shape:
+                continue
+            result[key] = value.astype(flat_ref[key].dtype) if value.dtype != flat_ref[key].dtype else value
+        for key, value in flat_ref.items():
+            if key not in result:
+                result[key] = value
+        return _tele_gsy_traverse_util.unflatten_dict(result, sep="/")
+
+
+def _tele_gsy_freeze_filter(model_config):
+    base_filter = model_config.get_freeze_filter() if _TELE_GSY_PI0_UR5E_LORA else nnx.Nothing()
+    train_resized_projection = nnx.Not(_tele_gsy_nnx_utils.PathRegex(".*(state_proj|action_in_proj|action_out_proj).*"))
+    return nnx.All(base_filter, train_resized_projection)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -77,11 +109,9 @@ class TeleGsyUR5eInputs(_transforms.DataTransformFn):
 @dataclasses.dataclass(frozen=True)
 class TeleGsyUR5eOutputs(_transforms.DataTransformFn):
     action_dim: int = 7
+    action_format: str = "joint_position_gripper"
 
     def __call__(self, data: dict) -> dict:
-        # UR5e action convention:
-        # [dx, dy, dz, droll, dpitch, dyaw, gripper]
-        # The gripper value is absolute and is not delta-converted.
         return {"actions": _tele_gsy_np.asarray(data["actions"][:, : self.action_dim])}
 
 
@@ -89,6 +119,7 @@ class TeleGsyUR5eOutputs(_transforms.DataTransformFn):
 class TeleGsyLeRobotUR5eDataConfig(DataConfigFactory):
     expected_state_dim: int | None = None
     action_dim: int = 7
+    action_format: str = "joint_position_gripper"
     camera_padding_strategy: str = "duplicate_base"
 
     @override
@@ -113,7 +144,7 @@ class TeleGsyLeRobotUR5eDataConfig(DataConfigFactory):
                     camera_padding_strategy=self.camera_padding_strategy,
                 )
             ],
-            outputs=[TeleGsyUR5eOutputs(action_dim=self.action_dim)],
+            outputs=[TeleGsyUR5eOutputs(action_dim=self.action_dim, action_format=self.action_format)],
         )
         model_transforms = ModelTransformFactory(
             default_prompt=_tele_gsy_os.environ.get(
@@ -132,14 +163,25 @@ class TeleGsyLeRobotUR5eDataConfig(DataConfigFactory):
 
 _TELE_GSY_PI0_UR5E_LORA = _tele_gsy_env_bool("PI0_UR5E_LORA", True)
 _TELE_GSY_PI0_UR5E_REPO_ID = _tele_gsy_os.environ.get("PI0_UR5E_LEROBOT_REPO_ID", "local/pi0_ur5e_cup")
+_TELE_GSY_PI0_UR5E_ACTION_FORMAT = _tele_gsy_os.environ.get("PI0_UR5E_ACTION_FORMAT", "joint_position_gripper")
+_TELE_GSY_PI0_UR5E_ACTION_ORDER = (
+    ["dx", "dy", "dz", "droll", "dpitch", "dyaw", "gripper"]
+    if _TELE_GSY_PI0_UR5E_ACTION_FORMAT == "ee_delta_6d_gripper"
+    else ["joint_0", "joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "gripper"]
+)
+_TELE_GSY_PI0_UR5E_MODEL_ACTION_DIM = _tele_gsy_env_int("PI0_UR5E_STATE_DIM", 32)
 _TELE_GSY_PI0_UR5E_MODEL = (
     pi0_config.Pi0Config(
         paligemma_variant="gemma_2b_lora",
         action_expert_variant="gemma_300m_lora",
+        action_dim=_TELE_GSY_PI0_UR5E_MODEL_ACTION_DIM,
         action_horizon=_tele_gsy_env_int("PI0_UR5E_ACTION_HORIZON", 50),
     )
     if _TELE_GSY_PI0_UR5E_LORA
-    else pi0_config.Pi0Config(action_horizon=_tele_gsy_env_int("PI0_UR5E_ACTION_HORIZON", 50))
+    else pi0_config.Pi0Config(
+        action_dim=_TELE_GSY_PI0_UR5E_MODEL_ACTION_DIM,
+        action_horizon=_tele_gsy_env_int("PI0_UR5E_ACTION_HORIZON", 50),
+    )
 )
 
 _CONFIGS.append(
@@ -154,20 +196,22 @@ _CONFIGS.append(
             base_config=DataConfig(prompt_from_task=False),
             expected_state_dim=_tele_gsy_env_int("PI0_UR5E_STATE_DIM"),
             action_dim=7,
+            action_format=_TELE_GSY_PI0_UR5E_ACTION_FORMAT,
             camera_padding_strategy=_tele_gsy_os.environ.get("PI0_UR5E_CAMERA_PADDING", "duplicate_base"),
         ),
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        weight_loader=TeleGsyShapeTolerantCheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
         num_train_steps=_tele_gsy_env_int("PI0_UR5E_TRAIN_STEPS", 3000),
         batch_size=_tele_gsy_env_int("PI0_UR5E_BATCH_SIZE", 16),
         assets_base_dir=_tele_gsy_os.environ.get("PI0_UR5E_ASSETS_BASE_DIR", "./assets"),
         checkpoint_base_dir=_tele_gsy_os.environ.get("PI0_UR5E_CHECKPOINT_BASE_DIR", "./checkpoints"),
-        freeze_filter=_TELE_GSY_PI0_UR5E_MODEL.get_freeze_filter() if _TELE_GSY_PI0_UR5E_LORA else nnx.Nothing(),
+        keep_period=_tele_gsy_env_int("PI0_UR5E_KEEP_PERIOD", 1000),
+        freeze_filter=_tele_gsy_freeze_filter(_TELE_GSY_PI0_UR5E_MODEL),
         ema_decay=None if _TELE_GSY_PI0_UR5E_LORA else 0.99,
         policy_metadata={
             "robot_type": "ur5e",
             "action_dim": 7,
-            "action_format": "ee_delta_6d_gripper",
-            "action_order": ["dx", "dy", "dz", "droll", "dpitch", "dyaw", "gripper"],
+            "action_format": _TELE_GSY_PI0_UR5E_ACTION_FORMAT,
+            "action_order": _TELE_GSY_PI0_UR5E_ACTION_ORDER,
             "gripper_is_delta": False,
             "camera_padding_strategy": _tele_gsy_os.environ.get("PI0_UR5E_CAMERA_PADDING", "duplicate_base"),
         },

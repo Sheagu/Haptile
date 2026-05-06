@@ -18,7 +18,10 @@ def parse_args():
     parser.add_argument("--config", default=Path("learning/pi0_ur5e/configs/dataset_schema.yaml"), type=Path)
     parser.add_argument("--task-name", default="cup_pick_place")
     parser.add_argument("--default-prompt", default="pick up the paper cup and place it on the target")
+    parser.add_argument("--action-mode", default=None, choices=["ee_delta_6d_gripper", "ee_absolute_6d_gripper", "joint_position_gripper", "joint_delta_gripper"])
     parser.add_argument("--include-tactile", default="false")
+    parser.add_argument("--tactile-feature-mode", default=None, choices=["none", "low_dim", "image_embedding"])
+    parser.add_argument("--tactile-embedding-dim", default=None, type=int)
     parser.add_argument("--repo-id", default="local/pi0_ur5e_cup")
     parser.add_argument("--overwrite", default="false")
     return parser.parse_args()
@@ -27,7 +30,14 @@ def parse_args():
 def main():
     args = parse_args()
     include_tactile = str(args.include_tactile).lower() == "true"
-    reader = DatasetReader(args.input_root, args.config, config={"include_tactile": include_tactile, "default_prompt": args.default_prompt})
+    config = {"include_tactile": include_tactile, "default_prompt": args.default_prompt}
+    if args.action_mode is not None:
+        config["action_mode"] = args.action_mode
+    if args.tactile_feature_mode is not None:
+        config["tactile_feature_mode"] = args.tactile_feature_mode
+    if args.tactile_embedding_dim is not None:
+        config["tactile_embedding_dim"] = args.tactile_embedding_dim
+    reader = DatasetReader(args.input_root, args.config, config=config)
     episodes = reader.episodes()
     if not episodes:
         raise SystemExit(f"No readable episodes found under {args.input_root}")

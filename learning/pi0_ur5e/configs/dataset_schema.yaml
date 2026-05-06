@@ -1,8 +1,9 @@
-action_mode: ee_delta_6d_gripper
+action_mode: joint_position_gripper
 image_size: [224, 224]
 camera_padding_strategy: duplicate_base
 include_tactile: false
 tactile_feature_mode: none
+tactile_embedding_dim: 128
 default_prompt: pick up the paper cup and place it on the target
 
 # Override these lists if a dataset uses different names. Dotted names are
@@ -42,6 +43,14 @@ field_map:
     - touch
     - force
     - pressure
+  tactile_left_rgb:
+    - tactile_left_rgb
+    - left_tactile_rgb
+    - observation.images.tactile_left_rgb
+  tactile_right_rgb:
+    - tactile_right_rgb
+    - right_tactile_rgb
+    - observation.images.tactile_right_rgb
   language_instruction:
     - language_instruction
     - prompt

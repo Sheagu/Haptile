@@ -2,10 +2,11 @@ robot: ur5e
 task_name: cup_pick_place
 default_prompt: pick up the paper cup and place it on the target
 image_size: [224, 224]
-action_mode: ee_delta_6d_gripper
+action_mode: joint_position_gripper
 camera_padding_strategy: duplicate_base
 include_tactile: false
 tactile_feature_mode: none
+tactile_embedding_dim: 128
 action_limits:
   max_translation_delta: 0.05
   max_rotation_delta: 0.35

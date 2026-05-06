@@ -128,6 +128,7 @@ def write_lerobot_dataset(
         "tactile_shape": tactile_shape,
         "timestamp_dt": _array_stats(dts),
         "camera_padding_strategy": camera_padding_strategy,
+        "action_format": episodes[0].metadata.get("action_type") if episodes else None,
         "repo_id": repo_id,
         "fps": fps,
         "format": "lerobot_v2",

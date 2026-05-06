@@ -13,6 +13,7 @@ from learning.pi0_ur5e.pi0_ur5e.policy_client import (
     WebsocketPolicyClient,
     build_policy_observation,
 )
+from learning.pi0_ur5e.pi0_ur5e.tactile_features import TactileImageEncoder
 from learning.pi0_ur5e.pi0_ur5e.transforms import clip_pi0_action
 from learning.pi0_ur5e.pi0_ur5e.schema import Pi0Ur5eConfig
 
@@ -20,8 +21,8 @@ from learning.pi0_ur5e.pi0_ur5e.schema import Pi0Ur5eConfig
 class Pi0Agent:
     """Single-arm pi0 deployment agent for run_env.py.
 
-    The trained pi0_ur5e_cup policy predicts EEF deltas:
-    [dx, dy, dz, droll, dpitch, dyaw, gripper].
+    Set predict_eef_delta=False for DP-style joint-space checkpoints that output
+    [joint_0, ..., joint_5, gripper].
     """
 
     def __init__(
@@ -29,9 +30,12 @@ class Pi0Agent:
         host: str,
         port: int = 8000,
         *,
-        predict_eef_delta: bool = True,
+        predict_eef_delta: bool = False,
         state_dim: int = 7,
         image_size: tuple[int, int] = (224, 224),
+        include_tactile: bool = False,
+        tactile_feature_mode: str = "none",
+        tactile_embedding_dim: int = 128,
         base_camera_index: int = 1,
         wrist_camera_index: int = 0,
         prompt: str | None = None,
@@ -53,8 +57,18 @@ class Pi0Agent:
         self.client = WebsocketPolicyClient(host, port)
         self.config = Pi0Ur5eConfig()
         self.predict_eef_delta = predict_eef_delta
+        self.include_tactile = bool(include_tactile)
+        self.tactile_feature_mode = tactile_feature_mode
+        self.tactile_embedding_dim = int(tactile_embedding_dim)
+        if self.include_tactile and self.tactile_feature_mode == "image_embedding" and state_dim <= 7:
+            state_dim = 7 + self.tactile_embedding_dim
         self.state_dim = state_dim
         self.image_size = image_size
+        self.tactile_encoder = (
+            TactileImageEncoder(embedding_dim=self.tactile_embedding_dim)
+            if self.include_tactile and self.tactile_feature_mode == "image_embedding"
+            else None
+        )
         self.base_camera_index = base_camera_index
         self.wrist_camera_index = wrist_camera_index
         self.prompt = prompt or self.config.default_prompt
@@ -86,10 +100,11 @@ class Pi0Agent:
         self.control_active = True
 
         metadata_action_format = self.client.metadata.get("action_format")
-        if metadata_action_format and metadata_action_format != "ee_delta_6d_gripper":
+        expected_action_format = "ee_delta_6d_gripper" if self.predict_eef_delta else "joint_position_gripper"
+        if metadata_action_format and metadata_action_format != expected_action_format:
             print(
                 "[pi0] warning: server metadata action_format="
-                f"{metadata_action_format!r}; this agent expects 'ee_delta_6d_gripper'."
+                f"{metadata_action_format!r}; this agent expects {expected_action_format!r}."
             )
 
     def reset_temporal_state(self) -> None:
@@ -138,16 +153,13 @@ class Pi0Agent:
             image = cv2.resize(image, self.image_size[::-1], interpolation=cv2.INTER_AREA)
         return image
 
-    def _state(self, obs: Dict[str, Any]) -> np.ndarray:
+    def _base_state(self, obs: Dict[str, Any]) -> np.ndarray:
         if "ee_pos_quat" in obs and obs["ee_pos_quat"] is not None:
             state = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
         elif "joint_positions" in obs and obs["joint_positions"] is not None:
             state = np.asarray(obs["joint_positions"], dtype=np.float32).reshape(-1)[:6]
         else:
             raise KeyError("pi0 requires obs['ee_pos_quat'] or obs['joint_positions']")
-
-        if self.state_dim <= 6:
-            return state[: self.state_dim].astype(np.float32)
 
         gripper = 0.0
         if "gripper_position" in obs and obs["gripper_position"] is not None:
@@ -156,7 +168,29 @@ class Pi0Agent:
             joints = np.asarray(obs["joint_positions"], dtype=np.float32).reshape(-1)
             if len(joints) > 6:
                 gripper = float(joints[-1])
-        return np.concatenate([state, np.asarray([gripper], dtype=np.float32)])[: self.state_dim].astype(np.float32)
+        return np.concatenate([state, np.asarray([gripper], dtype=np.float32)]).astype(np.float32)
+
+    def _state(self, obs: Dict[str, Any]) -> np.ndarray:
+        state = self._base_state(obs)
+        if self.tactile_encoder is not None:
+            state = np.concatenate([state, self._tactile_embedding(obs)], axis=0)
+        if state.shape[0] < self.state_dim:
+            state = np.pad(state, (0, self.state_dim - state.shape[0]))
+        return state[: self.state_dim].astype(np.float32)
+
+    def _tactile_embedding(self, obs: Dict[str, Any]) -> np.ndarray:
+        left = self._first_obs_value(obs, ("tactile_left_rgb", "left_tactile_rgb"))
+        right = self._first_obs_value(obs, ("tactile_right_rgb", "right_tactile_rgb"))
+        if left is None and right is None:
+            print("[pi0] warning: tactile image embedding enabled but tactile_left_rgb/tactile_right_rgb are missing.")
+        return self.tactile_encoder.encode_pair(left, right)
+
+    @staticmethod
+    def _first_obs_value(obs: Dict[str, Any], keys: tuple[str, ...]) -> Any | None:
+        for key in keys:
+            if key in obs and obs[key] is not None:
+                return obs[key]
+        return None
 
     def _policy_observation(self, obs: Dict[str, Any]) -> dict[str, Any]:
         return build_policy_observation(

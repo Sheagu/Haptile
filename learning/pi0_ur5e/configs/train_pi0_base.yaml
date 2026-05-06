@@ -3,6 +3,9 @@ steps: 3000
 batch_size: 16
 lora: true
 include_tactile: false
+tactile_feature_mode: none
+tactile_embedding_dim: 128
+action_format: joint_position_gripper
 wandb: false
 exp_name: ur5e_cup_pi0_base
 gradient_checkpointing: true

@@ -18,6 +18,7 @@ def build_openpi_config_patch(
     dataset_root: str,
     checkpoint: str = "pi0_base",
     include_tactile: bool = False,
+    action_format: str = "joint_position_gripper",
     action_dim: int = 7,
     state_dim: int | None = None,
     camera_padding_strategy: str = "duplicate_base",
@@ -35,7 +36,7 @@ def build_openpi_config_patch(
         },
         "robot": {
             "type": "ur5e",
-            "action_format": "ee_delta_6d_gripper",
+            "action_format": action_format,
             "state_contains_tactile": include_tactile,
             "state_dim": state_dim,
         },

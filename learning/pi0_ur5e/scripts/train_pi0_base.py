@@ -28,6 +28,9 @@ def parse_args():
     parser.add_argument("--action-horizon", type=int, default=50)
     parser.add_argument("--lora", default="true")
     parser.add_argument("--include-tactile", default="false")
+    parser.add_argument("--tactile-feature-mode", default="none", choices=["none", "low_dim", "image_embedding"])
+    parser.add_argument("--tactile-embedding-dim", default=128, type=int)
+    parser.add_argument("--action-format", default=None, choices=["ee_delta_6d_gripper", "joint_position_gripper", "joint_delta_gripper"])
     parser.add_argument("--wandb", default="false")
     parser.add_argument("--exp-name", default="ur5e_cup_pi0_base")
     parser.add_argument("--resume", default=None)
@@ -40,11 +43,18 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     include_tactile = str(args.include_tactile).lower() == "true"
     patch_path = args.output_dir / "openpi_config_patch.json"
+    conversion_report_path = args.dataset_root / "conversion_report.json"
+    action_format = args.action_format
+    if action_format is None and conversion_report_path.exists():
+        conversion_report = json.loads(conversion_report_path.read_text(encoding="utf-8"))
+        action_format = conversion_report.get("action_format")
+    action_format = action_format or "joint_position_gripper"
     write_openpi_config_patch(
         patch_path,
         dataset_root=str(args.dataset_root),
         checkpoint=args.checkpoint,
         include_tactile=include_tactile,
+        action_format=action_format,
         camera_padding_strategy="duplicate_base",
     )
     snapshot = vars(args).copy()
@@ -76,6 +86,7 @@ def main():
             "PI0_UR5E_TRAIN_STEPS": str(args.steps),
             "PI0_UR5E_BATCH_SIZE": str(args.batch_size),
             "PI0_UR5E_ACTION_HORIZON": str(args.action_horizon),
+            "PI0_UR5E_ACTION_FORMAT": action_format,
             "PI0_UR5E_LORA": str(args.lora).lower(),
             "PI0_UR5E_ASSETS_BASE_DIR": str((args.output_dir / "assets").resolve()),
             "PI0_UR5E_CHECKPOINT_BASE_DIR": str((args.output_dir / "checkpoints").resolve()),

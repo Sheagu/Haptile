@@ -12,12 +12,14 @@ EXP_NAME="ur5e_cup_pi0_base"
 STEPS="3000"
 BATCH_SIZE="16"
 ACTION_HORIZON="50"
+KEEP_PERIOD="1000"
 LORA="true"
 XLA_PREALLOCATE="unset"
 WANDB="false"
 RESUME="false"
 OVERWRITE="true"
 INCLUDE_TACTILE="false"
+ACTION_FORMAT="joint_position_gripper"
 CAMERA_PADDING="duplicate_base"
 DEFAULT_PROMPT="pick up the paper cup and place it on the target"
 LEROBOT_REPO_ID="local/pi0_ur5e_cup"
@@ -33,12 +35,14 @@ while [[ $# -gt 0 ]]; do
     --steps) STEPS="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
     --action-horizon) ACTION_HORIZON="$2"; shift 2 ;;
+    --keep-period) KEEP_PERIOD="$2"; shift 2 ;;
     --lora) LORA="$2"; shift 2 ;;
     --xla-preallocate) XLA_PREALLOCATE="$2"; shift 2 ;;
     --wandb) WANDB="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
     --overwrite) OVERWRITE="$2"; shift 2 ;;
     --include-tactile) INCLUDE_TACTILE="$2"; shift 2 ;;
+    --action-format) ACTION_FORMAT="$2"; shift 2 ;;
     --camera-padding-strategy) CAMERA_PADDING="$2"; shift 2 ;;
     --default-prompt) DEFAULT_PROMPT="$2"; shift 2 ;;
     --lerobot-repo-id|--repo-id) LEROBOT_REPO_ID="$2"; shift 2 ;;
@@ -81,6 +85,18 @@ PY
 
 mkdir -p "$OUTPUT_DIR/logs"
 cp -f "$DATASET_ROOT/conversion_report.json" "$OUTPUT_DIR/conversion_report.json" 2>/dev/null || true
+if [[ -f "$DATASET_ROOT/conversion_report.json" && "$ACTION_FORMAT" == "auto" ]]; then
+  ACTION_FORMAT="$("$OPENPI_ROOT/.venv/bin/python" - "$DATASET_ROOT" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path = Path(sys.argv[1]) / "conversion_report.json"
+report = json.loads(report_path.read_text())
+print(report.get("action_format") or "joint_position_gripper")
+PY
+)"
+fi
 
 "$REPO_ROOT/learning/pi0_ur5e/scripts/install_openpi_config.py" --openpi-root "$OPENPI_ROOT"
 
@@ -97,6 +113,8 @@ export PI0_UR5E_STATE_DIM="$STATE_DIM"
 export PI0_UR5E_TRAIN_STEPS="$STEPS"
 export PI0_UR5E_BATCH_SIZE="$BATCH_SIZE"
 export PI0_UR5E_ACTION_HORIZON="$ACTION_HORIZON"
+export PI0_UR5E_KEEP_PERIOD="$KEEP_PERIOD"
+export PI0_UR5E_ACTION_FORMAT="$ACTION_FORMAT"
 export PI0_UR5E_LORA="$LORA"
 export PI0_UR5E_CAMERA_PADDING="$CAMERA_PADDING"
 export PI0_UR5E_DEFAULT_PROMPT="$DEFAULT_PROMPT"
@@ -127,6 +145,8 @@ echo "OpenPI root: $OPENPI_ROOT"
 echo "Dataset root: $DATASET_ROOT"
 echo "State dim: $STATE_DIM"
 echo "Action horizon: $ACTION_HORIZON"
+echo "Keep period: $KEEP_PERIOD"
+echo "Action format: $ACTION_FORMAT"
 echo "Compute norm stats command:"
 printf 'XLA_PYTHON_CLIENT_PREALLOCATE=%q ' "${XLA_PYTHON_CLIENT_PREALLOCATE:-<unset>}"
 printf 'XLA_PYTHON_CLIENT_MEM_FRACTION=%q ' "$XLA_PYTHON_CLIENT_MEM_FRACTION"
