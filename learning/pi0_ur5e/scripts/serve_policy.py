@@ -47,6 +47,11 @@ def main() -> None:
     parser.add_argument("--dataset-root", default=None, type=Path)
     parser.add_argument("--asset-id", default=None)
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--max-token-len", type=int, default=None)
+    parser.add_argument("--model-family", default=None, choices=["pi0", "pi05", "pi0_fast"])
+    parser.add_argument("--use-delta-actions", default="true")
+    parser.add_argument("--camera-padding-strategy", default="zeros")
+    parser.add_argument("--freeze-mode", default="default", choices=["default", "vision_action_head", "action_head"])
     parser.add_argument("--default-prompt", default="pick up the paper cup and place it on the target")
     parser.add_argument("--record", default="false")
     parser.add_argument("--dry-run", default="false")
@@ -66,6 +71,13 @@ def main() -> None:
         env["PI0_UR5E_LEROBOT_REPO_ID"] = str(args.dataset_root.resolve())
         if (state_dim := read_state_dim(args.dataset_root)) is not None:
             env["PI0_UR5E_STATE_DIM"] = str(state_dim)
+    if args.max_token_len is not None:
+        env["PI0_UR5E_MAX_TOKEN_LEN"] = str(args.max_token_len)
+    if args.model_family is not None:
+        env["PI0_UR5E_MODEL_FAMILY"] = args.model_family
+    env["PI0_UR5E_USE_DELTA_ACTIONS"] = str(args.use_delta_actions).lower()
+    env["PI0_UR5E_CAMERA_PADDING"] = args.camera_padding_strategy
+    env["PI0_UR5E_FREEZE_MODE"] = args.freeze_mode
 
     checkpoint_dir = args.checkpoint_dir.resolve()
     asset_id = args.asset_id or infer_asset_id(checkpoint_dir)

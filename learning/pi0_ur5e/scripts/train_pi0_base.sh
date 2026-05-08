@@ -8,19 +8,24 @@ DATASET_ROOT=""
 OUTPUT_DIR=""
 OPENPI_ROOT=""
 CONFIG_NAME="pi0_ur5e_cup"
-EXP_NAME="ur5e_cup_pi0_base"
-STEPS="3000"
+EXP_NAME="ur5e_cup_pi05_base"
+STEPS="30000"
 BATCH_SIZE="16"
 ACTION_HORIZON="50"
+MAX_TOKEN_LEN=""
 KEEP_PERIOD="1000"
 LORA="true"
+PI05="true"
+MODEL_FAMILY=""
+USE_DELTA_ACTIONS="true"
+FREEZE_MODE="default"
 XLA_PREALLOCATE="unset"
 WANDB="false"
 RESUME="false"
 OVERWRITE="true"
 INCLUDE_TACTILE="false"
 ACTION_FORMAT="joint_position_gripper"
-CAMERA_PADDING="duplicate_base"
+CAMERA_PADDING="zeros"
 DEFAULT_PROMPT="pick up the paper cup and place it on the target"
 LEROBOT_REPO_ID="local/pi0_ur5e_cup"
 DRY_RUN="false"
@@ -35,8 +40,13 @@ while [[ $# -gt 0 ]]; do
     --steps) STEPS="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
     --action-horizon) ACTION_HORIZON="$2"; shift 2 ;;
+    --max-token-len) MAX_TOKEN_LEN="$2"; shift 2 ;;
     --keep-period) KEEP_PERIOD="$2"; shift 2 ;;
     --lora) LORA="$2"; shift 2 ;;
+    --pi05) PI05="$2"; shift 2 ;;
+    --model-family) MODEL_FAMILY="$2"; shift 2 ;;
+    --use-delta-actions) USE_DELTA_ACTIONS="$2"; shift 2 ;;
+    --freeze-mode) FREEZE_MODE="$2"; shift 2 ;;
     --xla-preallocate) XLA_PREALLOCATE="$2"; shift 2 ;;
     --wandb) WANDB="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
@@ -113,9 +123,18 @@ export PI0_UR5E_STATE_DIM="$STATE_DIM"
 export PI0_UR5E_TRAIN_STEPS="$STEPS"
 export PI0_UR5E_BATCH_SIZE="$BATCH_SIZE"
 export PI0_UR5E_ACTION_HORIZON="$ACTION_HORIZON"
+if [[ -n "$MAX_TOKEN_LEN" ]]; then
+  export PI0_UR5E_MAX_TOKEN_LEN="$MAX_TOKEN_LEN"
+fi
 export PI0_UR5E_KEEP_PERIOD="$KEEP_PERIOD"
 export PI0_UR5E_ACTION_FORMAT="$ACTION_FORMAT"
 export PI0_UR5E_LORA="$LORA"
+export PI0_UR5E_PI05="$PI05"
+if [[ -n "$MODEL_FAMILY" ]]; then
+  export PI0_UR5E_MODEL_FAMILY="$MODEL_FAMILY"
+fi
+export PI0_UR5E_USE_DELTA_ACTIONS="$USE_DELTA_ACTIONS"
+export PI0_UR5E_FREEZE_MODE="$FREEZE_MODE"
 export PI0_UR5E_CAMERA_PADDING="$CAMERA_PADDING"
 export PI0_UR5E_DEFAULT_PROMPT="$DEFAULT_PROMPT"
 export PI0_UR5E_ASSETS_BASE_DIR="$OUTPUT_DIR/assets"
@@ -145,8 +164,13 @@ echo "OpenPI root: $OPENPI_ROOT"
 echo "Dataset root: $DATASET_ROOT"
 echo "State dim: $STATE_DIM"
 echo "Action horizon: $ACTION_HORIZON"
+echo "Max token length: ${MAX_TOKEN_LEN:-default}"
 echo "Keep period: $KEEP_PERIOD"
 echo "Action format: $ACTION_FORMAT"
+echo "Pi0.5 enabled: $PI05"
+echo "Model family: ${MODEL_FAMILY:-auto}"
+echo "Use delta actions: $USE_DELTA_ACTIONS"
+echo "Freeze mode: $FREEZE_MODE"
 echo "Compute norm stats command:"
 printf 'XLA_PYTHON_CLIENT_PREALLOCATE=%q ' "${XLA_PYTHON_CLIENT_PREALLOCATE:-<unset>}"
 printf 'XLA_PYTHON_CLIENT_MEM_FRACTION=%q ' "$XLA_PYTHON_CLIENT_MEM_FRACTION"

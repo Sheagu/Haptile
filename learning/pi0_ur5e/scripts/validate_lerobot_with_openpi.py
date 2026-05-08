@@ -70,7 +70,10 @@ def main() -> None:
     parser.add_argument("--config-name", default="pi0_ur5e_cup")
     parser.add_argument("--expected-action-dim", type=int, default=7)
     parser.add_argument("--expected-state-dim", type=int, default=None)
-    parser.add_argument("--camera-padding-strategy", default="duplicate_base")
+    parser.add_argument("--camera-padding-strategy", default="zeros")
+    parser.add_argument("--model-family", default=None, choices=["pi0", "pi05", "pi0_fast"])
+    parser.add_argument("--use-delta-actions", default="true")
+    parser.add_argument("--freeze-mode", default="default", choices=["default", "vision_action_head", "action_head"])
     args = parser.parse_args()
 
     subprocess.run(
@@ -89,8 +92,12 @@ def main() -> None:
             "PI0_UR5E_LEROBOT_REPO_ID": str(args.dataset_root.resolve()),
             "PI0_UR5E_ASSET_ID": "pi0_ur5e_cup",
             "PI0_UR5E_CAMERA_PADDING": args.camera_padding_strategy,
+            "PI0_UR5E_USE_DELTA_ACTIONS": str(args.use_delta_actions).lower(),
+            "PI0_UR5E_FREEZE_MODE": args.freeze_mode,
         }
     )
+    if args.model_family is not None:
+        env["PI0_UR5E_MODEL_FAMILY"] = args.model_family
     if args.expected_state_dim is not None:
         env["PI0_UR5E_STATE_DIM"] = str(args.expected_state_dim)
     code = textwrap.dedent(VALIDATOR)

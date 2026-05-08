@@ -86,8 +86,10 @@ The training script injects `learning/pi0_ur5e/openpi_patches/pi0_ur5e_cup_confi
 ```bash
 cd /home/rpl/yongqiang/openpi
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/compute_norm_stats.py --config-name pi0_ur5e_cup
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi0_ur5e_cup --exp-name ur5e_cup_pi0_base --overwrite
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py pi0_ur5e_cup --exp-name ur5e_cup_pi05_base --overwrite
 ```
+
+`pi0_ur5e_cup` now defaults to pi0.5 and loads `pi05_base`. Set `PI0_UR5E_PI05=false` or pass `--pi05 false` to the helper script to fall back to pi0 / `pi0_base`.
 
 3000-step sanity check from this repository:
 
