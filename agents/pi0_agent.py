@@ -154,10 +154,17 @@ class Pi0Agent:
         return image
 
     def _base_state(self, obs: Dict[str, Any]) -> np.ndarray:
-        if "ee_pos_quat" in obs and obs["ee_pos_quat"] is not None:
-            state = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
+        if self.predict_eef_delta:
+            if "ee_pos_quat" in obs and obs["ee_pos_quat"] is not None:
+                state = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
+            elif "joint_positions" in obs and obs["joint_positions"] is not None:
+                state = np.asarray(obs["joint_positions"], dtype=np.float32).reshape(-1)[:6]
+            else:
+                raise KeyError("pi0_eef requires obs['ee_pos_quat'] or obs['joint_positions']")
         elif "joint_positions" in obs and obs["joint_positions"] is not None:
             state = np.asarray(obs["joint_positions"], dtype=np.float32).reshape(-1)[:6]
+        elif "ee_pos_quat" in obs and obs["ee_pos_quat"] is not None:
+            state = np.asarray(obs["ee_pos_quat"], dtype=np.float32).reshape(-1)[:6]
         else:
             raise KeyError("pi0 requires obs['ee_pos_quat'] or obs['joint_positions']")
 
