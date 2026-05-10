@@ -363,5 +363,16 @@ class Pi0Agent:
         if self.last_joint_action is not None and self.last_joint_action.shape == action.shape:
             action = self.joint_ema_alpha * action + (1.0 - self.joint_ema_alpha) * self.last_joint_action
         action[-1] = np.clip(action[-1], self.config.action_limits["min_gripper"], self.config.action_limits["max_gripper"])
+        if self.debug_actions:
+            joints = np.asarray(obs["joint_positions"], dtype=np.float32).reshape(-1)
+            diff = action - joints[: action.shape[0]]
+            print(
+                "[pi0] joint action",
+                f"state={self._state(obs).tolist()}",
+                f"raw={raw_action.tolist()}",
+                f"cmd={action.tolist()}",
+                f"current={joints[: action.shape[0]].tolist()}",
+                f"diff={diff.tolist()}",
+            )
         self.last_joint_action = action.copy()
         return action.astype(np.float32)
