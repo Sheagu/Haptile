@@ -75,6 +75,10 @@ def main() -> None:
         env["PI0_UR5E_MAX_TOKEN_LEN"] = str(args.max_token_len)
     if args.model_family is not None:
         env["PI0_UR5E_MODEL_FAMILY"] = args.model_family
+        if args.model_family == "pi0":
+            env["PI0_UR5E_PI05"] = "false"
+        elif args.model_family == "pi05":
+            env["PI0_UR5E_PI05"] = "true"
     env["PI0_UR5E_USE_DELTA_ACTIONS"] = str(args.use_delta_actions).lower()
     env["PI0_UR5E_CAMERA_PADDING"] = args.camera_padding_strategy
     env["PI0_UR5E_FREEZE_MODE"] = args.freeze_mode

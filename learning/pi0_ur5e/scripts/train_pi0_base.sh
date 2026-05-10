@@ -132,6 +132,11 @@ export PI0_UR5E_LORA="$LORA"
 export PI0_UR5E_PI05="$PI05"
 if [[ -n "$MODEL_FAMILY" ]]; then
   export PI0_UR5E_MODEL_FAMILY="$MODEL_FAMILY"
+  if [[ "$MODEL_FAMILY" == "pi0" ]]; then
+    export PI0_UR5E_PI05="false"
+  elif [[ "$MODEL_FAMILY" == "pi05" ]]; then
+    export PI0_UR5E_PI05="true"
+  fi
 fi
 export PI0_UR5E_USE_DELTA_ACTIONS="$USE_DELTA_ACTIONS"
 export PI0_UR5E_FREEZE_MODE="$FREEZE_MODE"

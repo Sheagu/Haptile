@@ -107,6 +107,10 @@ def main():
         env["PI0_UR5E_MAX_TOKEN_LEN"] = str(args.max_token_len)
     if args.model_family is not None:
         env["PI0_UR5E_MODEL_FAMILY"] = args.model_family
+        if args.model_family == "pi0":
+            env["PI0_UR5E_PI05"] = "false"
+        elif args.model_family == "pi05":
+            env["PI0_UR5E_PI05"] = "true"
     if state_dim is not None:
         env["PI0_UR5E_STATE_DIM"] = str(state_dim)
     if str(args.wandb).lower() != "true":
