@@ -17,26 +17,25 @@ Tactile images are not passed to pi0 as extra image slots. When tactile is enabl
 
 ## Paths
 
-Use these shell variables in the commands below:
+The commands below use this example layout:
 
-```bash
-export TELE_GSY_ROOT=/home/rpl/yongqiang/tele-gsy
-export OPENPI_ROOT=/home/rpl/yongqiang/openpi
-export RAW_DATA_ROOT=/path/to/raw_dataset
-export TASK=cup_pick_place
-export PROMPT="pick up the paper cup and place it on the target"
+```text
+/home/rpl/yongqiang/tele-gsy   # this repository
+/home/rpl/yongqiang/openpi     # OpenPI checkout
+/path/to/raw_dataset           # raw recorded trajectories
+turn_cleanser_bottle           # example task name
 ```
 
 Run conversion from the OpenPI environment so LeRobot is available:
 
 ```bash
-cd "$OPENPI_ROOT"
+cd /home/rpl/yongqiang/openpi
 ```
 
 Run training and deployment helper scripts from this repository:
 
 ```bash
-cd "$TELE_GSY_ROOT"
+cd /home/rpl/yongqiang/tele-gsy
 ```
 
 ## Raw Data Requirements
@@ -73,14 +72,14 @@ Use this path for the no-tactile baseline. The resulting `observation.state` is 
 Convert:
 
 ```bash
-cd "$OPENPI_ROOT"
-uv run python "$TELE_GSY_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
-  --input-root "$RAW_DATA_ROOT" \
-  --output-root "$TELE_GSY_ROOT/outputs/${TASK}_lerobot_no_tactile" \
-  --config "$TELE_GSY_ROOT/learning/pi0_ur5e/configs/dataset_schema.yaml" \
-  --task-name "$TASK" \
-  --repo-id local/pi0_ur5e_${TASK}_no_tactile \
-  --default-prompt "$PROMPT" \
+cd /home/rpl/yongqiang/openpi
+uv run python /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/scripts/convert_to_lerobot.py \
+  --input-root /path/to/raw_dataset \
+  --output-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
+  --config /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/configs/dataset_schema.yaml \
+  --task-name turn_cleanser_bottle \
+  --repo-id local/pi0_ur5e_turn_cleanser_bottle_no_tactile \
+  --default-prompt "turn the cleanser bottle" \
   --action-mode joint_position_gripper \
   --include-tactile false \
   --overwrite true
@@ -89,10 +88,10 @@ uv run python "$TELE_GSY_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
 Check the converted state dimension:
 
 ```bash
-LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_no_tactile" python - <<'CHECK'
-import json, os
+python - <<'CHECK'
+import json
 from pathlib import Path
-root = Path(os.environ["LEROBOT_ROOT"])
+root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile")
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
@@ -123,14 +122,14 @@ robot_state(7) + tactile_embedding(128) = observation.state(135)
 Convert:
 
 ```bash
-cd "$OPENPI_ROOT"
-uv run python "$TELE_GSY_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
-  --input-root "$RAW_DATA_ROOT" \
-  --output-root "$TELE_GSY_ROOT/outputs/${TASK}_lerobot_tactile_emb" \
-  --config "$TELE_GSY_ROOT/learning/pi0_ur5e/configs/dataset_schema.yaml" \
-  --task-name "$TASK" \
-  --repo-id local/pi0_ur5e_${TASK}_tactile_emb \
-  --default-prompt "$PROMPT" \
+cd /home/rpl/yongqiang/openpi
+uv run python /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/scripts/convert_to_lerobot.py \
+  --input-root /path/to/raw_dataset \
+  --output-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
+  --config /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/configs/dataset_schema.yaml \
+  --task-name turn_cleanser_bottle \
+  --repo-id local/pi0_ur5e_turn_cleanser_bottle_tactile_emb \
+  --default-prompt "turn the cleanser bottle" \
   --action-mode joint_position_gripper \
   --include-tactile true \
   --tactile-feature-mode image_embedding \
@@ -141,10 +140,10 @@ uv run python "$TELE_GSY_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
 Check the converted state and tactile dimensions:
 
 ```bash
-LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_tactile_emb" python - <<'CHECK'
-import json, os
+python - <<'CHECK'
+import json
 from pathlib import Path
-root = Path(os.environ["LEROBOT_ROOT"])
+root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb")
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
@@ -184,15 +183,13 @@ The `--use-delta-actions true` flag tells the OpenPI data transform to train on 
 ### Train Without Tactile
 
 ```bash
-cd "$TELE_GSY_ROOT"
-export LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_no_tactile"
-
+cd /home/rpl/yongqiang/tele-gsy
 bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
-  --dataset-root "$LEROBOT_ROOT" \
-  --output-dir "$TELE_GSY_ROOT/outputs/pi0_${TASK}_no_tactile_lora" \
-  --openpi-root "$OPENPI_ROOT" \
-  --repo-id local/pi0_ur5e_${TASK}_no_tactile \
-  --exp-name ${TASK}_pi0_base_no_tactile_lora \
+  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
+  --output-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_no_tactile_lora \
+  --openpi-root /home/rpl/yongqiang/openpi \
+  --repo-id local/pi0_ur5e_turn_cleanser_bottle_no_tactile \
+  --exp-name turn_cleanser_bottle_pi0_base_no_tactile_lora \
   --steps 30000 \
   --batch-size 16 \
   --model-family pi0 \
@@ -201,21 +198,19 @@ bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
   --camera-padding-strategy zeros \
   --use-delta-actions true \
   --include-tactile false \
-  --default-prompt "$PROMPT"
+  --default-prompt "turn the cleanser bottle"
 ```
 
 ### Train With Tactile Embedding
 
 ```bash
-cd "$TELE_GSY_ROOT"
-export LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_tactile_emb"
-
+cd /home/rpl/yongqiang/tele-gsy
 bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
-  --dataset-root "$LEROBOT_ROOT" \
-  --output-dir "$TELE_GSY_ROOT/outputs/pi0_${TASK}_tactile_emb_lora" \
-  --openpi-root "$OPENPI_ROOT" \
-  --repo-id local/pi0_ur5e_${TASK}_tactile_emb \
-  --exp-name ${TASK}_pi0_base_tactile_emb_lora \
+  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
+  --output-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_tactile_emb_lora \
+  --openpi-root /home/rpl/yongqiang/openpi \
+  --repo-id local/pi0_ur5e_turn_cleanser_bottle_tactile_emb \
+  --exp-name turn_cleanser_bottle_pi0_base_tactile_emb_lora \
   --steps 30000 \
   --batch-size 16 \
   --model-family pi0 \
@@ -224,7 +219,7 @@ bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
   --camera-padding-strategy zeros \
   --use-delta-actions true \
   --include-tactile true \
-  --default-prompt "$PROMPT"
+  --default-prompt "turn the cleanser bottle"
 ```
 
 `--include-tactile true` documents the run, but the training input dimension is determined by the converted dataset. A tactile-embedding dataset must already have the tactile embedding appended to `observation.state`.
@@ -249,42 +244,34 @@ Run the policy server on the GPU machine. Use the same dataset variant that was 
 ### Serve No-Tactile Checkpoint
 
 ```bash
-cd "$TELE_GSY_ROOT"
-export LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_no_tactile"
-export CHECKPOINT_DIR="$TELE_GSY_ROOT/outputs/pi0_${TASK}_no_tactile_lora/checkpoints/pi0_ur5e_cup/${TASK}_pi0_base_no_tactile_lora/<step>"
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
-
+cd /home/rpl/yongqiang/tele-gsy
+XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
-  --openpi-root "$OPENPI_ROOT" \
+  --openpi-root /home/rpl/yongqiang/openpi \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir "$CHECKPOINT_DIR" \
-  --dataset-root "$LEROBOT_ROOT" \
+  --checkpoint-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_no_tactile_lora/checkpoints/pi0_ur5e_cup/turn_cleanser_bottle_pi0_base_no_tactile_lora/<step> \
+  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
-  --default-prompt "$PROMPT" \
+  --default-prompt "turn the cleanser bottle" \
   --port 8000
 ```
 
 ### Serve Tactile-Embedding Checkpoint
 
 ```bash
-cd "$TELE_GSY_ROOT"
-export LEROBOT_ROOT="$TELE_GSY_ROOT/outputs/${TASK}_lerobot_tactile_emb"
-export CHECKPOINT_DIR="$TELE_GSY_ROOT/outputs/pi0_${TASK}_tactile_emb_lora/checkpoints/pi0_ur5e_cup/${TASK}_pi0_base_tactile_emb_lora/<step>"
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.85
-
+cd /home/rpl/yongqiang/tele-gsy
+XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
-  --openpi-root "$OPENPI_ROOT" \
+  --openpi-root /home/rpl/yongqiang/openpi \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir "$CHECKPOINT_DIR" \
-  --dataset-root "$LEROBOT_ROOT" \
+  --checkpoint-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_tactile_emb_lora/checkpoints/pi0_ur5e_cup/turn_cleanser_bottle_pi0_base_tactile_emb_lora/<step> \
+  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
-  --default-prompt "$PROMPT" \
+  --default-prompt "turn the cleanser bottle" \
   --port 8000
 ```
 
@@ -304,7 +291,7 @@ python run_env.py \
   --safe-max-hand-delta 0.03 \
   --pi0-policy-host <gpu_computer_ip> \
   --pi0-policy-port 8000 \
-  --pi0-prompt "$PROMPT" \
+  --pi0-prompt "turn the cleanser bottle" \
   --pi0-state-dim 7 \
   --pi0-action-chunk-size 6 \
   --pi0-include-tactile false
@@ -323,9 +310,9 @@ python run_env.py \
   --use-tactile true \
   --pi0-policy-host <gpu_computer_ip> \
   --pi0-policy-port 8000 \
-  --pi0-prompt "$PROMPT" \
+  --pi0-prompt "turn the cleanser bottle" \
   --pi0-state-dim 135 \
-  --pi0-include-tactile true \
+  --pi0-include-tactile \
   --pi0-tactile-feature-mode image_embedding \
   --pi0-tactile-embedding-dim 128 \
   --pi0-action-chunk-size 6
@@ -346,10 +333,10 @@ If tactile was used in training but missing during deployment, `Pi0Agent` will p
 Check the dataset state dimension:
 
 ```bash
-LEROBOT_ROOT=/path/to/lerobot_dataset python - <<'CHECK'
-import json, os
+python - <<'CHECK'
+import json
 from pathlib import Path
-root = Path(os.environ["LEROBOT_ROOT"])
+root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb")
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
