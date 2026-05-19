@@ -4,7 +4,36 @@ import os
 import random
 
 
-def split_symlink_train_test_merge_dataset(root_list, t_root, num_traj_per_task):
+def is_valid_trajectory_dir(root, path):
+    full_path = os.path.join(root, path)
+    if not os.path.isdir(full_path):
+        return False
+    if (
+        path.endswith("failed")
+        or path.endswith("ood")
+        or path.endswith("ikbad")
+        or path.endswith("heated")
+        or path.endswith("stop")
+        or path.endswith("hard")
+    ):
+        return False
+    return os.path.isfile(os.path.join(full_path, "trajectory.h5"))
+
+
+def get_train_test_paths(all_paths, seed):
+    assert len(all_paths) >= 2
+    all_paths = all_paths.copy()
+    random.Random(seed).shuffle(all_paths)
+    train_paths = all_paths[:-1]
+    test_paths = all_paths[-1:]
+    print(
+        f"using {len(train_paths)} trajectories for train and "
+        f"{len(test_paths)} trajectories for test with seed {seed}"
+    )
+    return train_paths, test_paths
+
+
+def split_symlink_train_test_merge_dataset(root_list, t_root, num_traj_per_task, seed):
     target_train_root = t_root + f"_train"
     target_test_root = t_root + f"_test"
     print(
@@ -22,21 +51,10 @@ def split_symlink_train_test_merge_dataset(root_list, t_root, num_traj_per_task)
     all_paths = []
     for root in sorted(root_list):
         for path in sorted(os.listdir(root))[:num_traj_per_task]:
-            if not os.path.isfile(os.path.join(root, path)):
-                d = path
-                if (
-                    d.endswith("failed")
-                    or d.endswith("ood")
-                    or d.endswith("ikbad")
-                    or d.endswith("heated")
-                    or d.endswith("stop")
-                    or d.endswith("hard")
-                ):
-                    continue
+            if is_valid_trajectory_dir(root, path):
                 all_paths.append((root, path))
 
-    train_paths = all_paths[:-1]
-    test_paths = all_paths[-1:]
+    train_paths, test_paths = get_train_test_paths(all_paths, seed)
 
     for root, sl_path in train_paths:
         src_path = os.path.abspath(os.path.join(root, sl_path))
@@ -54,7 +72,7 @@ def split_symlink_train_test_merge_dataset(root_list, t_root, num_traj_per_task)
     print("Done!!")
 
 
-def split_symlink_train_test_dataset(root, t_root):
+def split_symlink_train_test_dataset(root, t_root, seed):
     target_train_root = t_root + f"_train"
     target_test_root = t_root + f"_test"
     print(
@@ -70,21 +88,10 @@ def split_symlink_train_test_dataset(root, t_root):
 
     all_paths = []
     for path in sorted(os.listdir(root)):
-        if not os.path.isfile(os.path.join(root, path)):
-            d = path
-            if (
-                d.endswith("failed")
-                or d.endswith("ood")
-                or d.endswith("ikbad")
-                or d.endswith("heated")
-                or d.endswith("stop")
-                or d.endswith("hard")
-            ):
-                continue
+        if is_valid_trajectory_dir(root, path):
             all_paths.append(path)
 
-    train_paths = all_paths[:-1]
-    test_paths = all_paths[-1:]
+    train_paths, test_paths = get_train_test_paths(all_paths, seed)
 
     for sl_path in train_paths:
         src_path = os.path.abspath(os.path.join(root, sl_path))
@@ -100,7 +107,7 @@ def split_symlink_train_test_dataset(root, t_root):
     print("Done!!")
 
 
-def split_symlink_dataset(root, num_trajs):
+def split_symlink_dataset(root, num_trajs, seed):
     target_root = root + f"_{num_trajs}"
     print(f"split {num_trajs} data points from {root} to {target_root}")
 
@@ -112,15 +119,16 @@ def split_symlink_dataset(root, num_trajs):
 
     all_paths = []
     for path in os.listdir(root):
-        if not os.path.isfile(os.path.join(root, path)):
+        if is_valid_trajectory_dir(root, path):
             all_paths.append(path)
 
-    random.seed(0)
-    random.shuffle(all_paths)
+    random.Random(seed).shuffle(all_paths)
 
+    assert len(all_paths) >= num_trajs, (
+        f"requested {num_trajs} trajectories from {root}, "
+        f"but only found {len(all_paths)}"
+    )
     sl_paths = all_paths[:num_trajs]
-
-    assert len(all_paths) >= num_trajs
     for sl_path in sl_paths:
         src_path = os.path.abspath(os.path.join(root, sl_path))
         tgt_path = os.path.abspath(os.path.join(target_root, sl_path))
@@ -142,10 +150,11 @@ if __name__ == "__main__":
             "data_banana",
         ],
     )
-    arg.add_argument("--num_trajs", nargs="+", type=int, default=[10, 25, 50, 75])
+    arg.add_argument("--num_trajs", nargs="*", type=int, default=[])
     arg.add_argument("--merge", action="store_true")
     arg.add_argument("--merge_name", type=str, default="data_banana_all")
     arg.add_argument("--num_traj_per_task", type=int, default=20)
+    arg.add_argument("--seed", type=int, default=0)
     args = arg.parse_args()
 
     if not args.merge:
@@ -153,10 +162,13 @@ if __name__ == "__main__":
             split_symlink_train_test_dataset(
                 os.path.join(args.base_path, data_name),
                 os.path.join(args.output_path, data_name),
+                args.seed,
             )
             for num_trajs in args.num_trajs:
                 split_symlink_dataset(
-                    os.path.join(args.output_path, data_name) + "_train", num_trajs
+                    os.path.join(args.output_path, data_name) + "_train",
+                    num_trajs,
+                    args.seed,
                 )
 
     else:
@@ -167,4 +179,5 @@ if __name__ == "__main__":
             data_name_list,
             os.path.join(args.output_path, args.merge_name),
             args.num_traj_per_task,
+            args.seed,
         )

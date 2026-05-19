@@ -1,0 +1,50 @@
+number of parameters: 7.255886e+07
+Traceback (most recent call last):
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 1065, in <module>
+    agent = Agent(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 325, in __init__
+    self.policy.to(self.device)
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/learner.py", line 130, in to
+    self.nets.to(device)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1355, in to
+    return self._apply(convert)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  [Previous line repeated 4 more times]
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 942, in _apply
+    param_applied = fn(param)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1341, in convert
+    return t.to(
+RuntimeError: CUDA error: uncorrectable ECC error encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Traceback (most recent call last):
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 1065, in <module>
+    agent = Agent(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 325, in __init__
+    self.policy.to(self.device)
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/learner.py", line 130, in to
+    self.nets.to(device)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1355, in to
+    return self._apply(convert)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 915, in _apply
+    module._apply(fn)
+  [Previous line repeated 4 more times]
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 942, in _apply
+    param_applied = fn(param)
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1341, in convert
+    return t.to(
+RuntimeError: CUDA error: uncorrectable ECC error encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.

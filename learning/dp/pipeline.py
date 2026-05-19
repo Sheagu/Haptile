@@ -537,6 +537,9 @@ class Agent:
                 )
             else:
                 cache_memmap = True
+                image_memmap_dir = os.path.dirname(image_memmap_path)
+                if image_memmap_dir != "":
+                    os.makedirs(image_memmap_dir, exist_ok=True)
                 image_memmaps[image_key] = np.memmap(
                     image_memmap_path,
                     dtype=np.uint16,
@@ -1192,8 +1195,10 @@ if __name__ == "__main__":
             if args.memmap_loader_path is not None:
                 memmap_loader_path = args.memmap_loader_path
                 if test_path is not None:
-                    _, memmap_name = os.path.split(memmap_loader_path)
-                    eval_memmap_loader_path = os.path.join(test_path, memmap_name)
+                    root, ext = os.path.splitext(memmap_loader_path)
+                    eval_memmap_loader_path = (
+                        f"{root}-eval{ext}" if ext != "" else f"{memmap_loader_path}-eval"
+                    )
                 else:
                     eval_memmap_loader_path = memmap_loader_path
             else:
@@ -1226,6 +1231,7 @@ if __name__ == "__main__":
                 eval_trajs = data_processing.get_epi_dir(
                     test_path, traj_type=args.traj_type, prefix=args.prefix
                 )
+                print(f"Found {len(eval_trajs)} eval trajectories.")
                 if len(eval_trajs) == 0:
                     raise ValueError(f"No eval trajectories found in {test_path}")
                 if len(eval_trajs) == 1:

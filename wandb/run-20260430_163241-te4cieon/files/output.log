@@ -1,0 +1,39 @@
+number of parameters: 7.439386e+07
+Saving to model path /scratch/grp/luo/shiyi/project/tele-gsy/data/wipe_board_trimmed/ckpts/dp_img_pos_eef_delta/0430_163240_TXGU-camera=01-identity=False-repr=IPE-oh=2-ah=8-ph=16-prefix=None-do=0.0-imgos=64-wd=1e-05-use_ddim=False-binarize_touch=False-posdelta
+using data path /users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed
+using memmap loader path: /users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/01-False-mem.dat
+using eval memmap loader path: /users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_test/01-False-mem.dat
+/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train
+/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_test
+All Directories
+['0428_155943', '0428_160032', '0428_160115', '0428_160214', '0428_160318', '0428_160408', '0428_160458', '0428_160609', '0428_160651', '0428_160729', '0428_160808', '0428_160902', '0428_160947', '0428_161030', '0428_161111', '0428_161352', '0428_161446', '0428_161527', '0428_161610', '0428_161654', '0428_161734', '0428_161815', '0428_161916', '0428_161956', '0428_162109', '0428_162201', '0428_162239', '0428_162318', '0428_162501', '0428_162607', '0428_162648', '0428_162734', '0428_162823', '0428_162854', '0428_162939', '0428_163018', '0428_163059', '0428_163147', '0428_163231', '0428_163318', '0428_163445', '0428_163522', '0428_163607', '0428_163648', '0428_163732', '0428_163819', '0428_163858', '0428_163936', '0428_164052']
+==========
+['/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_155943', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160032', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160115', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160214', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160318', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160408', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160458', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160609', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160651', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160729', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160808', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160902', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_160947', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161030', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161111', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161352', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161446', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161527', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161610', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161654', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161734', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161815', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161916', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_161956', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162109', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162201', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162239', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162318', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162501', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162607', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162648', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162734', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162823', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162854', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_162939', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163018', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163059', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163147', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163231', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163318', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163445', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163522', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163607', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163648', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163732', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163819', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163858', '/users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed_train/0428_163936', '/users/k250709
+All Directories
+['0428_162035']
+==========
+eval trajectories: 1
+Traceback (most recent call last):
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 1246, in <module>
+    agent.train(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 718, in train
+    train_loader = self.get_train_loader(batch_size, memmap_loader_path)
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 559, in get_train_loader
+    image_memmaps, cache_memmap = self._open_episode_image_memmaps(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 532, in _open_episode_image_memmaps
+    image_memmaps[image_key] = np.memmap(
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/numpy/core/memmap.py", line 268, in __new__
+    mm = mmap.mmap(fid.fileno(), bytes, access=acc, offset=start)
+ValueError: mmap length is greater than file size
+Traceback (most recent call last):
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 1246, in <module>
+    agent.train(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 718, in train
+    train_loader = self.get_train_loader(batch_size, memmap_loader_path)
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 559, in get_train_loader
+    image_memmaps, cache_memmap = self._open_episode_image_memmaps(
+  File "/cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py", line 532, in _open_episode_image_memmaps
+    image_memmaps[image_key] = np.memmap(
+  File "/users/k25070928/miniconda3/envs/tele/lib/python3.9/site-packages/numpy/core/memmap.py", line 268, in __new__
+    mm = mmap.mmap(fid.fileno(), bytes, access=acc, offset=start)
+ValueError: mmap length is greater than file size

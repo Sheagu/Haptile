@@ -73,9 +73,15 @@ def open_camera(device_path, width=640, height=480):
         actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            print(f"  ERROR: Opened device but could not read a frame!")
+            cap.release()
+            return None
+
         print(f"  SUCCESS: {actual_width}x{actual_height} @ {fps}fps")
         
-        return cap
+        return cap, frame
     except Exception as e:
         print(f"  ERROR: {e}")
         return None
@@ -98,16 +104,24 @@ def capture_frames(cap, device_name, frame_queue):
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 1)
         
         try:
-            frame_queue.put(frame, timeout=0.1)
+            frame_queue.put_nowait(frame)
         except queue.Full:
-            pass  # Drop frame if queue is full
+            try:
+                frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                frame_queue.put_nowait(frame)
+            except queue.Full:
+                pass
 
 
 def display_single_camera(device_path, width=640, height=480):
     """Display a single camera in real-time."""
-    cap = open_camera(device_path, width, height)
-    if cap is None:
+    opened = open_camera(device_path, width, height)
+    if opened is None:
         return
+    cap, first_frame = opened
     
     device_name = os.path.basename(device_path)
     window_name = f"Camera: {device_name}"
@@ -117,8 +131,12 @@ def display_single_camera(device_path, width=640, height=480):
     print(f"\nDisplaying {device_name}... Press 'q' to quit, 's' to save frame")
     
     frame_count = 0
+    frame = first_frame
     while True:
-        ret, frame = cap.read()
+        if frame_count > 0:
+            ret, frame = cap.read()
+        else:
+            ret = True
         if not ret:
             print(f"Failed to read frame from {device_name}")
             break
@@ -150,15 +168,18 @@ def display_multiple_cameras(device_paths, width=640, height=480):
     caps = {}
     threads = {}
     frame_queues = {}
+    last_frames = {}
     
     # Open all cameras
     print("\nOpening cameras...\n")
     for device_path in device_paths:
         device_name = os.path.basename(device_path)
-        cap = open_camera(device_path, width, height)
-        if cap is not None:
+        opened = open_camera(device_path, width, height)
+        if opened is not None:
+            cap, first_frame = opened
             caps[device_name] = cap
-            frame_queues[device_name] = queue.Queue(maxsize=2)
+            frame_queues[device_name] = queue.Queue(maxsize=1)
+            last_frames[device_name] = first_frame
             
             # Start capture thread
             thread = Thread(target=capture_frames, args=(cap, device_name, frame_queues[device_name]), daemon=True)
@@ -176,8 +197,9 @@ def display_multiple_cameras(device_paths, width=640, height=480):
     cols = int(np.ceil(np.sqrt(num_cameras)))
     rows = int(np.ceil(num_cameras / cols))
     
-    # Get frame dimensions from first camera
-    ret, test_frame = list(caps.values())[0].read()
+    # Get frame dimensions from the first verified frame. Avoid reading from the
+    # same VideoCapture in both the display and capture threads.
+    test_frame = next(iter(last_frames.values()))
     frame_h, frame_w = test_frame.shape[:2]
     
     display_w = min(1920 // cols, 640)
@@ -194,13 +216,18 @@ def display_multiple_cameras(device_paths, width=640, height=480):
         # Create grid canvas
         canvas = np.zeros((rows * display_h, cols * display_w, 3), dtype=np.uint8)
         
-        # Collect frames from all cameras
-        all_have_frames = True
+        # Collect the newest available frames, falling back to the last good
+        # frame so the display does not flash black when a queue is momentarily
+        # empty.
         for idx, device_name in enumerate(device_names):
-            try:
-                frame = frame_queues[device_name].get(timeout=0.01)
-            except queue.Empty:
-                all_have_frames = False
+            while True:
+                try:
+                    last_frames[device_name] = frame_queues[device_name].get_nowait()
+                except queue.Empty:
+                    break
+
+            frame = last_frames.get(device_name)
+            if frame is None:
                 continue
             
             # Resize frame

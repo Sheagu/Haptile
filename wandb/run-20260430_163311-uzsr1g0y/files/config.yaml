@@ -1,0 +1,232 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            qg2a49glvkgnzj7t4rrzl824jcjl4elc:
+                args:
+                    - --data_path
+                    - /users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed
+                    - --model_save_path
+                    - /scratch/grp/luo/shiyi/project/tele-gsy/data/wipe_board_trimmed/ckpts/dp_img_pos_tactile_delta
+                    - --use_train_test_split
+                    - "True"
+                    - --representation_type
+                    - img-tactile_img-pos
+                    - --camera_indices
+                    - "01"
+                    - --joint_state_dim
+                    - "7"
+                    - --action_dim
+                    - "7"
+                    - --eef_dim
+                    - "6"
+                    - --batch_size
+                    - "32"
+                    - --num_workers
+                    - "4"
+                    - --epochs
+                    - "300"
+                    - --eval_freq
+                    - "10"
+                    - --save_freq
+                    - "10"
+                    - --obs_horizon
+                    - "2"
+                    - --pred_horizon
+                    - "16"
+                    - --action_horizon
+                    - "8"
+                    - --num_diffusion_iters
+                    - "100"
+                    - --predict_pos_delta
+                    - "True"
+                    - --image_output_size
+                    - "64"
+                    - --color_jitter
+                    - "True"
+                    - --state_noise
+                    - "0.005"
+                    - --use_memmap_cache
+                    - "True"
+                    - --load_img
+                    - "False"
+                    - --gpu
+                    - "0"
+                    - --use_wandb
+                    - "True"
+                    - --wandb_entity_name
+                    - shiyi_gu_seu
+                    - --wandb_project_name
+                    - tele-gsy
+                    - --wandb_exp_name
+                    - wipe_board_trimmed_dp_img_pos_tactile_delta
+                codePath: learning/dp/pipeline.py
+                codePathLocal: learning/dp/pipeline.py
+                email: shea_gu@outlook.com
+                executable: /users/k25070928/miniconda3/envs/tele/bin/python
+                git:
+                    commit: 5b287821c63adbfc3d1f22d11092275e9bded3a5
+                    remote: git@github.com:Sheagu/tele-gsy.git
+                host: erc-hpc-comp035
+                os: Linux-6.8.0-107-generic-x86_64-with-glibc2.35
+                program: /cephfs/volumes/hpc_home/k25070928/e122c6b5-6c41-4e4e-b801-e0c06e43e9e8/project/tele-gsy/learning/dp/pipeline.py
+                python: CPython 3.9.25
+                root: .
+                startedAt: "2026-04-30T15:33:11.542240Z"
+                writerId: qg2a49glvkgnzj7t4rrzl824jcjl4elc
+        m: []
+        python_version: 3.9.25
+        t:
+            "1":
+                - 1
+                - 41
+                - 49
+                - 83
+            "2":
+                - 1
+                - 41
+                - 49
+                - 83
+            "3":
+                - 13
+                - 16
+            "4": 3.9.25
+            "5": 0.26.1
+            "10":
+                - 20
+            "12": 0.26.1
+            "13": linux-x86_64
+action_dim:
+    value: 7
+action_horizon:
+    value: 8
+add_model_save_path_suffix:
+    value: true
+base_path:
+    value: ./shared
+batch_size:
+    value: 32
+binarize_touch:
+    value: false
+camera_indices:
+    value: "01"
+clip_far:
+    value: false
+color_jitter:
+    value: true
+compile_train:
+    value: false
+data_name:
+    value: test_data
+data_path:
+    value: /users/k25070928/project/tele-gsy/data_split/wipe_board_trimmed
+data_prefix:
+    value: null
+dropout_rate:
+    value: 0
+eef_dim:
+    value: 6
+epochs:
+    value: 300
+eval:
+    value: false
+eval_freq:
+    value: 10
+eval_path:
+    value: null
+gpu:
+    value: 0
+hand_pos_dim:
+    value: 12
+identity_encoder:
+    value: false
+image_output_size:
+    value: 64
+img_dropout_rate:
+    value: 0
+img_gaussian_noise:
+    value: 0
+img_masking_prob:
+    value: 0
+img_patch_size:
+    value: 16
+joint_state_dim:
+    value: 7
+load_img:
+    value: false
+load_path:
+    value: null
+logging.anonymous:
+    value: null
+logging.entity:
+    value: shiyi_gu_seu
+logging.exp_name:
+    value: wipe_board_trimmed_dp_img_pos_tactile_delta_0430_163311_OXXR
+logging.experiment_id:
+    value: null
+logging.mode:
+    value: online
+logging.notes:
+    value: null
+logging.output_dir:
+    value: .
+logging.project:
+    value: tele-gsy
+logging.random_delay:
+    value: 0.5
+logging.time:
+    value: 2026-04-30_16:33:11
+memmap_loader_path:
+    value: null
+model_save_path:
+    value: /scratch/grp/luo/shiyi/project/tele-gsy/data/wipe_board_trimmed/ckpts/dp_img_pos_tactile_delta
+num_diffusion_iters:
+    value: 100
+num_workers:
+    value: 4
+obs_horizon:
+    value: 2
+policy_dropout_rate:
+    value: 0
+pred_horizon:
+    value: 16
+predict_eef_delta:
+    value: false
+predict_pos_delta:
+    value: true
+prefix:
+    value: null
+prepare_cache_only:
+    value: false
+representation_type:
+    value: img-tactile_img-pos
+save_freq:
+    value: 10
+save_path:
+    value: null
+state_noise:
+    value: 0.005
+touch_dim:
+    value: 60
+train_suffix:
+    value: ""
+traj_type:
+    value: plain
+use_ddim:
+    value: false
+use_memmap_cache:
+    value: true
+use_train_test_split:
+    value: true
+use_wandb:
+    value: true
+wandb_entity_name:
+    value: shiyi_gu_seu
+wandb_exp_name:
+    value: wipe_board_trimmed_dp_img_pos_tactile_delta
+wandb_project_name:
+    value: tele-gsy
+weight_decay:
+    value: 1e-05
+without_sampling:
+    value: false

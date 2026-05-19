@@ -140,7 +140,7 @@ After the cache is ready, train with the same data and model parameters:
 ```bash
 python learning/dp/pipeline.py \
   --data_path /path/to/split_data/cup_demo \
-  --representation_type img-depth-eef-pos-touch \
+  --representation_type img-tactile_img-pos \
   --camera_indices 01 \
   --joint_state_dim 7 \
   --action_dim 7 \
