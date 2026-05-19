@@ -31,7 +31,7 @@ from marker_tracking.utils import (
 from robot_node import ZMQClientRobot
 from udp_haptics_sender import clamp01, send_packet
 
-trigger_state = {"r": False,"l":False}
+trigger_state = {"r": False, "l": False, "s": False, "d": False}
 
 # Mapping for tactile camera names to v4l2 by-path ports (persistent device paths)
 # Change these paths to match your actual v4l/by-path devices
@@ -1216,7 +1216,7 @@ def main(args):
             stop_hint = (
                 "Recording started! Press rocker [RJ] TWICE to stop."
                 if has_oculus
-                else "Recording started! Press [r] TWICE to stop (triple to discard)."
+                else "Recording started! Press [s] to stop+save, or [d] to stop+delete."
             )
             print_color(stop_hint, color="green", attrs=("bold",))
 
@@ -1427,33 +1427,53 @@ def main(args):
                     ff = 1 / (time.time() - new_start_time)
                     frame_freq.append(ff)
 
-                    # Click detection: double-click to stop+save, triple-click to stop+delete
-                    rocker_pressed = _is_rocker_pressed(agent)
-                    if rocker_pressed and not prev_rocker:
-                        now = time.time()
-                        if now - last_rocker_click_time < DOUBLE_CLICK_WINDOW:
-                            rocker_click_count += 1
-                        else:
-                            rocker_click_count = 1
-                        last_rocker_click_time = now
-                    prev_rocker = rocker_pressed
+                    # Stop detection
+                    if not has_oculus:
+                        # Keyboard mode: s=stop+save, d=stop+delete
+                        if trigger_state.get("s", False):
+                            print_color(
+                                "\n[s] pressed, stopping and saving trajectory.",
+                                color="yellow",
+                                attrs=("bold",),
+                            )
+                            stop_type = "double"
+                            break
+                        elif trigger_state.get("d", False):
+                            print_color(
+                                "\n[d] pressed, stopping and deleting trajectory.",
+                                color="red",
+                                attrs=("bold",),
+                            )
+                            stop_type = "triple"
+                            break
+                    else:
+                        # Quest mode: double-click to stop+save, triple-click to stop+delete
+                        rocker_pressed = _is_rocker_pressed(agent)
+                        if rocker_pressed and not prev_rocker:
+                            now = time.time()
+                            if now - last_rocker_click_time < DOUBLE_CLICK_WINDOW:
+                                rocker_click_count += 1
+                            else:
+                                rocker_click_count = 1
+                            last_rocker_click_time = now
+                        prev_rocker = rocker_pressed
 
-                    if rocker_click_count >= 3:
-                        print_color(
-                            "\nTriple-click detected, stopping and deleting trajectory.",
-                            color="red",
-                            attrs=("bold",),
-                        )
-                        stop_type = "triple"
-                        break
-                    elif rocker_click_count == 2 and (time.time() - last_rocker_click_time) > DOUBLE_CLICK_WINDOW:
-                        print_color(
-                            "\nDouble-click detected, stopping recording.",
-                            color="yellow",
-                            attrs=("bold",),
-                        )
-                        stop_type = "double"
-                        break
+                        if rocker_click_count >= 3:
+                            print_color(
+                                "\nTriple-click detected, stopping and deleting trajectory.",
+                                color="red",
+                                attrs=("bold",),
+                            )
+                            stop_type = "triple"
+                            break
+                        elif rocker_click_count == 2 and (time.time() - last_rocker_click_time) > DOUBLE_CLICK_WINDOW:
+                            print_color(
+                                "\nDouble-click detected, stopping recording.",
+                                color="yellow",
+                                attrs=("bold",),
+                            )
+                            stop_type = "double"
+                            break
 
             finally:
                 if trajectory_writer is not None:
