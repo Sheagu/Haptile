@@ -13,3 +13,5 @@ data_split/
 runs/
 venv/
 outputs/
+script_results/
+wandb/
