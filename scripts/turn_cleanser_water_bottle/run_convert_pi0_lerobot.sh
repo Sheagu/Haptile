@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=convert_pi0_tactile
+#SBATCH --job-name=convert_pi0
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -12,11 +12,13 @@ set -e
 
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
-DATASET_NAME=wipe_board
-OUTPUT_NAME=wipe_board_lerobot_tactile_emb
-REPO_ID=local/pi0_ur5e_wipe_board_tactile_emb
-DEFAULT_PROMPT="Grab the sponge, wipe the markers on the white board and put the sponge back"
-TACTILE_EMBEDDING_DIM=16
+DATASET_NAME=turn_cleanser_water_bottle
+OUTPUT_NAME=turn_cleanser_water_bottle_lerobot_no_tactile_two_prompt
+REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_no_tactile
+DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
+YELLOW_BOWL_PROMPT="Pick up the cleanser bottle, tilt it over the yellow bowl as if pouring, then place it back in its original position"
+BLUE_BOWL_PROMPT="Pick up the cleanser bottle, tilt it over the blue bowl as if pouring, then place it back in its original position"
+PROMPT_CUTOFF_EPISODE=0519_181949
 
 INPUT_ROOT=${PROJECT_ROOT}/shared/data/bc_data/${DATASET_NAME}
 OUTPUT_ROOT=${PROJECT_ROOT}/outputs/${OUTPUT_NAME}
@@ -36,13 +38,12 @@ echo "Conda env: $CONDA_DEFAULT_ENV"
 echo "UV path: $(which uv)"
 echo "Input root: ${INPUT_ROOT}"
 echo "Output root: ${OUTPUT_ROOT}"
-echo "Tactile embedding dim: ${TACTILE_EMBEDDING_DIM}"
 echo "================================"
 
 echo "Checking GPU with nvidia-smi:"
 nvidia-smi
 
-echo "Converting raw trajectories to LeRobot/OpenPI format with tactile embedding:"
+echo "Converting raw trajectories to LeRobot/OpenPI format:"
 uv run python "${CONVERT_SCRIPT}" \
   --input-root "${INPUT_ROOT}" \
   --output-root "${OUTPUT_ROOT}" \
@@ -50,10 +51,11 @@ uv run python "${CONVERT_SCRIPT}" \
   --task-name "${DATASET_NAME}" \
   --repo-id "${REPO_ID}" \
   --default-prompt "${DEFAULT_PROMPT}" \
+  --episode-prompt-cutoff "${PROMPT_CUTOFF_EPISODE}" \
+  --prompt-before-or-at-cutoff "${YELLOW_BOWL_PROMPT}" \
+  --prompt-after-cutoff "${BLUE_BOWL_PROMPT}" \
   --action-mode joint_position_gripper \
-  --include-tactile true \
-  --tactile-feature-mode image_embedding \
-  --tactile-embedding-dim "${TACTILE_EMBEDDING_DIM}" \
+  --include-tactile false \
   --overwrite true
 
 echo "Conversion finished."
@@ -68,8 +70,4 @@ root = Path(os.environ["OUTPUT_ROOT"])
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
-report_path = root / "conversion_report.json"
-if report_path.exists():
-    report = json.loads(report_path.read_text())
-    print("tactile_shape:", report.get("tactile_shape"))
 CHECK

@@ -1,6 +1,6 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=train_pi0_tactile
+#SBATCH --job-name=train_pi0
 #SBATCH --gres=gpu:1
 #SBATCH --constraint="a100_40g|h200|a100_80g|l40s"
 #SBATCH --exclude=erc-hpc-comp031,erc-hpc-comp035
@@ -14,16 +14,16 @@ set -e
 
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
-DATASET_NAME=wipe_board
-LEROBOT_REPO_ID=local/pi0_ur5e_wipe_board_tactile_emb
-EXP_NAME=wipe_board_pi0_base_tactile_emb_lora
-DEFAULT_PROMPT="Grab the sponge, wipe the markers on the white board and put the sponge back"
+DATASET_NAME=turn_cleanser_water_bottle
+LEROBOT_REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_no_tactile
+EXP_NAME=turn_cleanser_water_bottle_pi0_base_no_tactile_lora
+DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
 DRY_RUN=false
 WANDB=true
 KEEP_PERIOD=10000
 
-DATASET_ROOT=${PROJECT_ROOT}/outputs/${DATASET_NAME}_lerobot_tactile_emb
-OUTPUT_DIR=${PROJECT_ROOT}/outputs/pi0_${DATASET_NAME}_tactile_emb_lora
+DATASET_ROOT=${PROJECT_ROOT}/outputs/${DATASET_NAME}_lerobot_no_tactile
+OUTPUT_DIR=${PROJECT_ROOT}/outputs/pi0_${DATASET_NAME}_no_tactile_lora
 
 cd "${PROJECT_ROOT}"
 source /users/k25070928/miniconda3/etc/profile.d/conda.sh
@@ -45,7 +45,7 @@ echo "================================"
 echo "Checking GPU with nvidia-smi:"
 nvidia-smi
 
-echo "Launching pi0 LoRA training helper with tactile embedding:"
+echo "Launching pi0 LoRA training helper:"
 bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
   --dataset-root "${DATASET_ROOT}" \
   --output-dir "${OUTPUT_DIR}" \
@@ -60,7 +60,7 @@ bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
   --lora true \
   --camera-padding-strategy zeros \
   --use-delta-actions true \
-  --include-tactile true \
+  --include-tactile false \
   --wandb "${WANDB}" \
   --default-prompt "${DEFAULT_PROMPT}" \
   --dry-run "${DRY_RUN}"

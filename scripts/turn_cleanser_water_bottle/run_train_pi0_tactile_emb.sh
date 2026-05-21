@@ -14,10 +14,10 @@ set -e
 
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
-DATASET_NAME=wipe_board
-LEROBOT_REPO_ID=local/pi0_ur5e_wipe_board_tactile_emb
-EXP_NAME=wipe_board_pi0_base_tactile_emb_lora
-DEFAULT_PROMPT="Grab the sponge, wipe the markers on the white board and put the sponge back"
+DATASET_NAME=turn_cleanser_water_bottle
+LEROBOT_REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_tactile_emb
+EXP_NAME=turn_cleanser_water_bottle_pi0_base_tactile_emb_lora
+DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
 DRY_RUN=false
 WANDB=true
 KEEP_PERIOD=10000

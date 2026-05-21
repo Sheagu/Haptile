@@ -18,6 +18,21 @@ def parse_args():
     parser.add_argument("--config", default=Path("learning/pi0_ur5e/configs/dataset_schema.yaml"), type=Path)
     parser.add_argument("--task-name", default="cup_pick_place")
     parser.add_argument("--default-prompt", default="pick up the paper cup and place it on the target")
+    parser.add_argument(
+        "--episode-prompt-cutoff",
+        default=None,
+        help="Episode id cutoff for assigning two prompts lexicographically, e.g. 0519_181949.",
+    )
+    parser.add_argument(
+        "--prompt-before-or-at-cutoff",
+        default=None,
+        help="Prompt used for episodes with episode_id <= --episode-prompt-cutoff.",
+    )
+    parser.add_argument(
+        "--prompt-after-cutoff",
+        default=None,
+        help="Prompt used for episodes with episode_id > --episode-prompt-cutoff.",
+    )
     parser.add_argument("--action-mode", default=None, choices=["ee_delta_6d_gripper", "ee_absolute_6d_gripper", "joint_position_gripper", "joint_delta_gripper"])
     parser.add_argument("--include-tactile", default="false")
     parser.add_argument("--tactile-feature-mode", default=None, choices=["none", "low_dim", "image_embedding"])
@@ -41,6 +56,12 @@ def main():
     episodes = reader.episodes()
     if not episodes:
         raise SystemExit(f"No readable episodes found under {args.input_root}")
+    _apply_episode_prompt_cutoff(
+        episodes,
+        cutoff=args.episode_prompt_cutoff,
+        before_or_at_prompt=args.prompt_before_or_at_cutoff,
+        after_prompt=args.prompt_after_cutoff,
+    )
     report = write_lerobot_dataset(
         episodes,
         args.output_root,
@@ -53,6 +74,18 @@ def main():
     )
     print(f"Converted {report['episode_count']} episodes / {report['total_frames']} frames to {args.output_root}")
     print(f"Report: {args.output_root / 'conversion_report.json'}")
+
+
+def _apply_episode_prompt_cutoff(episodes, *, cutoff: str | None, before_or_at_prompt: str | None, after_prompt: str | None) -> None:
+    provided = [cutoff is not None, before_or_at_prompt is not None, after_prompt is not None]
+    if not any(provided):
+        return
+    if not all(provided):
+        raise SystemExit(
+            "--episode-prompt-cutoff, --prompt-before-or-at-cutoff, and --prompt-after-cutoff must be provided together"
+        )
+    for episode in episodes:
+        episode.language_instruction = before_or_at_prompt if episode.episode_id <= cutoff else after_prompt
 
 
 if __name__ == "__main__":

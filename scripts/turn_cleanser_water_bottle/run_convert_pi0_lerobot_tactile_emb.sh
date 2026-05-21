@@ -12,10 +12,13 @@ set -e
 
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
-DATASET_NAME=wipe_board
-OUTPUT_NAME=wipe_board_lerobot_tactile_emb
-REPO_ID=local/pi0_ur5e_wipe_board_tactile_emb
-DEFAULT_PROMPT="Grab the sponge, wipe the markers on the white board and put the sponge back"
+DATASET_NAME=turn_cleanser_water_bottle
+OUTPUT_NAME=turn_cleanser_water_bottle_lerobot_tactile_emb
+REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_tactile_emb
+DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
+YELLOW_BOWL_PROMPT="Pick up the cleanser bottle, tilt it over the yellow bowl as if pouring, then place it back in its original position"
+BLUE_BOWL_PROMPT="Pick up the cleanser bottle, tilt it over the blue bowl as if pouring, then place it back in its original position"
+PROMPT_CUTOFF_EPISODE=0519_181949
 TACTILE_EMBEDDING_DIM=16
 
 INPUT_ROOT=${PROJECT_ROOT}/shared/data/bc_data/${DATASET_NAME}
@@ -50,6 +53,9 @@ uv run python "${CONVERT_SCRIPT}" \
   --task-name "${DATASET_NAME}" \
   --repo-id "${REPO_ID}" \
   --default-prompt "${DEFAULT_PROMPT}" \
+  --episode-prompt-cutoff "${PROMPT_CUTOFF_EPISODE}" \
+  --prompt-before-or-at-cutoff "${YELLOW_BOWL_PROMPT}" \
+  --prompt-after-cutoff "${BLUE_BOWL_PROMPT}" \
   --action-mode joint_position_gripper \
   --include-tactile true \
   --tactile-feature-mode image_embedding \
