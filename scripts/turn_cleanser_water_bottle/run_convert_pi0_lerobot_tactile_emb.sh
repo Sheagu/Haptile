@@ -13,7 +13,7 @@ set -e
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
 DATASET_NAME=turn_cleanser_water_bottle
-OUTPUT_NAME=turn_cleanser_water_bottle_lerobot_tactile_emb
+OUTPUT_NAME=turn_cleanser_water_bottle_lerobot_tactile_emb_two_prompt
 REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_tactile_emb
 DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
 YELLOW_BOWL_PROMPT="Pick up the cleanser bottle, tilt it over the yellow bowl as if pouring, then place it back in its original position"

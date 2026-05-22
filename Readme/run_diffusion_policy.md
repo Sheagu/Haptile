@@ -26,6 +26,10 @@
 33975795, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp.sh
 33975796, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp_tactile.sh
 
+- [ ] running:
+34052747, turn_cleanser_water_bottle, two prompts, sbatch -p gpu turn_cleanser_water_bottle/run_train_pi0_no_tactile.sh
+34052781, turn_cleanser_water_bottle, two prompts, sbatch -p gpu turn_cleanser_water_bottle/run_train_pi0_tactile_emb.sh
+
 # 总体流程
 - 数据从Amir电脑传到onedrive, 再传到这台电脑
 - 检查时间戳一致性：python Data_analysis/check_bc_data_integrity.py shared/data/bc_data/rubiks_cube

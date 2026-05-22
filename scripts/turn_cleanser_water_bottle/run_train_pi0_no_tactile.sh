@@ -15,15 +15,16 @@ set -e
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
 DATASET_NAME=turn_cleanser_water_bottle
+LEROBOT_DATASET_NAME=turn_cleanser_water_bottle_lerobot_no_tactile_two_prompt
 LEROBOT_REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_no_tactile
-EXP_NAME=turn_cleanser_water_bottle_pi0_base_no_tactile_lora
+EXP_NAME=turn_cleanser_water_bottle_pi0_base_no_tactile_two_prompt_lora
 DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
 DRY_RUN=false
 WANDB=true
 KEEP_PERIOD=10000
 
-DATASET_ROOT=${PROJECT_ROOT}/outputs/${DATASET_NAME}_lerobot_no_tactile
-OUTPUT_DIR=${PROJECT_ROOT}/outputs/pi0_${DATASET_NAME}_no_tactile_lora
+DATASET_ROOT=${PROJECT_ROOT}/outputs/${LEROBOT_DATASET_NAME}
+OUTPUT_DIR=${PROJECT_ROOT}/outputs/pi0_${DATASET_NAME}_no_tactile_two_prompt_lora
 
 cd "${PROJECT_ROOT}"
 source /users/k25070928/miniconda3/etc/profile.d/conda.sh
