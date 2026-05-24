@@ -1,0 +1,27 @@
+{
+  "points": [
+    [
+      108,
+      68
+    ],
+    [
+      317,
+      39
+    ],
+    [
+      318,
+      187
+    ],
+    [
+      110,
+      159
+    ]
+  ],
+  "output_size": [
+    320,
+    240
+  ],
+  "point_order": "top_left, top_right, bottom_right, bottom_left",
+  "source_h5": "shared/data/bc_data/put_bottle_upright/0518_165953/trajectory.h5",
+  "source_frame_index": 0
+}
