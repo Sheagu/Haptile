@@ -1,33 +1,18 @@
 #TODO
-- [x] finished
-33631575, wipe_board, 49 train, predict16+execute8, sbatch -p luo_gpu run_train_dp_16+8.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/2lgqtvnh
-33631668, wipe_board, 49 train, predict16+execute8, img-pos-eef, sbatch -p interruptible_gpu run_train_dp_16+8_img-pos-eef.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/aa1eibnb
-33644549, wipe_board_trimmed, sbatch -p interruptible_gpu run_prepare_cache_tactile.sh
-33740397, remove_cloth_trimmed, sbatch -p gpu run_prepare_cache_tactile.sh
-33740762, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu run_train_dp_zyq.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/wea84bgo, dp_img_pos_tactile_0506_020920_t7Xv, 5:30:01
-33740815, remove_cloth_trimmed, 49 train, zyq, sbatch -p interruptible_gpu run_train_dp_zyq.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/53lqi9mn, dp_img_pos_tactile_0506_035658_c44V, 5:03:38
-- [x] failed:
-33631684, wipe_board, 49 train, predict16+execute8, img-tactile_img-pos, sbatch -p interruptible_gpu run_train_dp_16+8_img-tactile_img-pos.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/n4z2rypj
-33741247, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_action4.sh, cuda out of memory
-33741260, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_obs2.sh, cuda out of memory
-33741428, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_notactile.sh, job cancelled, 0506_043827_0hfa
 
 - [ ] finished:
-33754199, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_action4.sh, 1:32:42<3:03:06, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/80rbf0iu, 0506_165240_pajh, copied
-33754210, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_obs2.sh, 1:32:03<4:51:20, timeout, 278/300 [5:58:37<26:47, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/zg01idyo, 0506_165308_adbp, copied
-
-- [ ] failed:
-33751364, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_notactile.sh, timeout, 140/300 [5:59:06<6:31:30, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/bexv05uq, 0506_152945_t8Y3, copied
+34052747, turn_cleanser_water_bottle, two prompts, sbatch -p gpu turn_cleanser_water_bottle/run_train_pi0_no_tactile.sh
+34052781, turn_cleanser_water_bottle, two prompts, sbatch -p gpu turn_cleanser_water_bottle/run_train_pi0_tactile_emb.sh
+34076467, wipe_board, tactile_embd, sbatch -p gpu wipe_board/run_train_pi0_tactile_emb.sh
 
 - [ ] running:
-5090, wipe_board, tactile_embd, ./scripts/wipe_board/run_train_pi0_tactile_emb_local.sh
-33975793, put_bottle_upright, dp, sbatch -p gpu put_bottle_upright/run_train_dp.sh
-33975794, put_bottle_upright, dp, sbatch -p gpu put_bottle_upright/run_train_dp_tactile.sh
-33975795, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp.sh
-33975796, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp_tactile.sh
-
-- [ ] running:
-
+34119721, sbatch -p gpu peg_in_hole/run_train_dp.sh
+34119737, sbatch -p gpu peg_in_hole/run_train_dp_tactile.sh
+34119762, sbatch -p gpu peg_in_hole/run_convert_pi0_lerobot.sh
+34119764, sbatch -p gpu peg_in_hole/run_convert_pi0_lerobot_tactile_emb.sh
+- [ ] waiting:
+sbatch -p gpu peg_in_hole/run_train_pi0_no_tactile.sh
+sbatch -p gpu peg_in_hole/run_train_pi0_tactile_emb.sh
 
 # 总体流程
 - 数据从Amir电脑传到onedrive, 再传到这台电脑
@@ -350,12 +335,12 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
   --openpi-root /home/kun/Yongqiang/openpi \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir /home/kun/Yongqiang/tele-gsy/outputs/pi0_fold_Tshirt_no_tactile_lora/checkpoints/pi0_ur5e_cup/fold_Tshirt_pi0_base_no_tactile_lora/13000 \
-  --dataset-root /home/kun/Yongqiang/tele-gsy/outputs/fold_Tshirt_lerobot_no_tactile \
+  --checkpoint-dir /home/kun/Yongqiang/tele-gsy/outputs/pi0_put_bottle_upright_no_tactile_lora/checkpoints/pi0_ur5e_cup/put_bottle_upright_pi0_base_no_tactile_lora/29999 \
+  --dataset-root /home/kun/Yongqiang/tele-gsy/outputs/put_bottle_upright_lerobot_no_tactile \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
-  --default-prompt "Fold the t-shirt in half" \
+  --default-prompt "Grab the bottle, put it upright on the table and release it" \
   --port 8000
 
 ### 有触觉
@@ -364,11 +349,11 @@ XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
   --openpi-root /home/kun/Yongqiang/openpi \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir /home/kun/Yongqiang/tele-gsy/outputs/pi0_fold_Tshirt_tactile_emb_lora/checkpoints/pi0_ur5e_cup/fold_Tshirt_pi0_base_tactile_emb_lora/29999 \
-  --dataset-root /home/kun/Yongqiang/tele-gsy/outputs/fold_Tshirt_lerobot_tactile_emb \
+  --checkpoint-dir /home/kun/Yongqiang/tele-gsy/outputs/pi0_put_bottle_upright_tactile_emb_lora/checkpoints/pi0_ur5e_cup/put_bottle_upright_pi0_base_tactile_emb_lora/29999 \
+  --dataset-root /home/kun/Yongqiang/tele-gsy/outputs/put_bottle_upright_lerobot_tactile_emb \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
-  --default-prompt "Fold the t-shirt in half" \
+  --default-prompt "Grab the bottle, put it upright on the table and release it" \
   --port 8000
 
