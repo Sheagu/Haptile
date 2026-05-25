@@ -1,33 +1,25 @@
 #TODO
-- [x] finished
-33631575, wipe_board, 49 train, predict16+execute8, sbatch -p luo_gpu run_train_dp_16+8.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/2lgqtvnh
-33631668, wipe_board, 49 train, predict16+execute8, img-pos-eef, sbatch -p interruptible_gpu run_train_dp_16+8_img-pos-eef.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/aa1eibnb
-33644549, wipe_board_trimmed, sbatch -p interruptible_gpu run_prepare_cache_tactile.sh
-33740397, remove_cloth_trimmed, sbatch -p gpu run_prepare_cache_tactile.sh
-33740762, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu run_train_dp_zyq.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/wea84bgo, dp_img_pos_tactile_0506_020920_t7Xv, 5:30:01
-33740815, remove_cloth_trimmed, 49 train, zyq, sbatch -p interruptible_gpu run_train_dp_zyq.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/53lqi9mn, dp_img_pos_tactile_0506_035658_c44V, 5:03:38
-- [x] failed:
-33631684, wipe_board, 49 train, predict16+execute8, img-tactile_img-pos, sbatch -p interruptible_gpu run_train_dp_16+8_img-tactile_img-pos.sh, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/n4z2rypj
-33741247, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_action4.sh, cuda out of memory
-33741260, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_obs2.sh, cuda out of memory
-33741428, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_notactile.sh, job cancelled, 0506_043827_0hfa
-
-- [ ] finished:
-33754199, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_action4.sh, 1:32:42<3:03:06, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/80rbf0iu, 0506_165240_pajh, copied
-33754210, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_obs2.sh, 1:32:03<4:51:20, timeout, 278/300 [5:58:37<26:47, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/zg01idyo, 0506_165308_adbp, copied
-
-- [ ] failed:
-33751364, remove_cloth, 49 train, zyq, sbatch -p interruptible_gpu remove_cloth/run_train_dp_notactile.sh, timeout, 140/300 [5:59:06<6:31:30, https://wandb.ai/shiyi_gu_seu/tele-gsy/runs/bexv05uq, 0506_152945_t8Y3, copied
-
 - [ ] running:
-5090, wipe_board, tactile_embd, ./scripts/wipe_board/run_train_pi0_tactile_emb_local.sh
-33975793, put_bottle_upright, dp, sbatch -p gpu put_bottle_upright/run_train_dp.sh
-33975794, put_bottle_upright, dp, sbatch -p gpu put_bottle_upright/run_train_dp_tactile.sh
-33975795, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp.sh
-33975796, wipe_board, dp, sbatch -p gpu wipe_board/run_train_dp_tactile.sh
+34153030, sbatch -p gpu put_bottle_upright_tactile_crop/run_train_pi0_tactile_emb.sh
+34153109, sbatch -p gpu peg_in_hole_tactile_crop/run_train_dp_tactile.sh
+34157944, sbatch -p gpu peg_in_hole_tactile_crop/run_train_pi0_tactile_emb.sh
+34161650, sbatch -p gpu turn_cleanser_water_bottle_tactile_crop/run_train_dp_tactile.sh
 
-- [ ] running:
+- [ ] waiting:
+34161601, sbatch -p gpu turn_cleanser_water_bottle_tactile_crop/run_convert_pi0_lerobot_tactile_emb.sh
+34161743, sbatch -p gpu wipe_board_tactile_crop/run_convert_pi0_lerobot_tactile_emb.sh
+34161856, sbatch -p gpu wipe_board_tactile_crop/run_train_dp_tactile.sh
 
+让另外两个marker tracking的训练跑起来，然后把带marker tracking的测试代码写一下，最后把改的代码同步到amir电脑
+
+# 裁剪触觉图像
+- 鼠标选点，生成角点坐标：python Data_analysis/crop_tactile_h5_videos.py select-config shared/data/bc_data/wipe_board --config-dir sensor_configs/wipe_board --output-size 320x240
+- 预览裁剪效果：python Data_analysis/crop_tactile_h5_videos.py preview shared/data/bc_data/wipe_board --config-dir sensor_configs/wipe_board
+- 批量转换整个数据集：python Data_analysis/crop_tactile_h5_videos.py convert shared/data/bc_data/wipe_board shared/data/bc_data/wipe_board_tactile_crop --config-dir sensor_configs/wipe_board
+- 查看裁剪后的视频：python Data_analysis/test_h5_video_export.py shared/data/bc_data/wipe_board_tactile_crop/0428_161030/trajectory.h5
+- 做marker tracking
+  - 单个数据：python Data_analysis/export_marker_tracking_overlay.py shared/data/bc_data/wipe_board_tactile_crop/0428_162501/trajectory.h5
+  - 整个数据集的触觉视频替换成带marker tracking箭头的： python Data_analysis/batch_replace_tactile_videos_with_marker_overlay.py shared/data/bc_data/wipe_board_tactile_crop
 
 # 总体流程
 - 数据从Amir电脑传到onedrive, 再传到这台电脑

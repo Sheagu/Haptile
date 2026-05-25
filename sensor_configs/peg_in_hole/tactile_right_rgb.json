@@ -1,0 +1,27 @@
+{
+  "points": [
+    [
+      88,
+      72
+    ],
+    [
+      311,
+      41
+    ],
+    [
+      314,
+      198
+    ],
+    [
+      91,
+      166
+    ]
+  ],
+  "output_size": [
+    320,
+    240
+  ],
+  "point_order": "top_left, top_right, bottom_right, bottom_left",
+  "source_h5": "shared/data/bc_data/peg_in_hole/0522_151659/trajectory.h5",
+  "source_frame_index": 0
+}

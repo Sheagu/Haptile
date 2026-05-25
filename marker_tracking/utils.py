@@ -1,5 +1,6 @@
 import os
 import shutil
+import itertools
 from dataclasses import dataclass
 
 import cv2
@@ -79,9 +80,280 @@ def find_marker_props(marker_img:np.ndarray):
         )
     return props
 
-def find_marker_centers(marker_img:np.ndarray):
+def _kmeans_1d(values: np.ndarray, k: int, max_iter: int = 50) -> np.ndarray:
+    """Small dependency-free 1D k-means used to regularize marker grids."""
+    values = np.asarray(values, dtype=np.float32).reshape(-1)
+    if len(values) == 0:
+        return np.zeros(k, dtype=np.float32)
+    if len(values) < k:
+        lo, hi = float(values.min()), float(values.max())
+        return np.linspace(lo, hi, k, dtype=np.float32)
+
+    centers = np.percentile(values, np.linspace(0, 100, k)).astype(np.float32)
+    for _ in range(max_iter):
+        labels = np.argmin(np.abs(values[:, None] - centers[None, :]), axis=1)
+        new_centers = centers.copy()
+        for idx in range(k):
+            cluster = values[labels == idx]
+            if len(cluster) > 0:
+                new_centers[idx] = float(np.median(cluster))
+        if np.allclose(new_centers, centers, atol=0.1):
+            centers = new_centers
+            break
+        centers = new_centers
+    centers.sort()
+    return centers
+
+
+def _filtered_marker_centers_from_props(
+    props: list[MarkerRegionProp],
+    *,
+    min_area_ratio: float = 0.25,
+    max_area_ratio: float = 4.0,
+    max_aspect_ratio: float = 3.0,
+) -> list[tuple[float, float]]:
+    if not props:
+        return []
+
+    areas = np.array([prop.area for prop in props], dtype=np.float32)
+    median_area = float(np.median(areas))
+    if median_area <= 0:
+        return []
+
+    filtered = []
+    for prop in props:
+        top, left, bottom, right = prop.bbox
+        height = max(1, bottom - top)
+        width = max(1, right - left)
+        aspect = max(width / height, height / width)
+        if prop.area < median_area * min_area_ratio:
+            continue
+        if prop.area > median_area * max_area_ratio:
+            continue
+        if aspect > max_aspect_ratio:
+            continue
+        # MarkerRegionProp stores centroid as (y, x). Return centers as (x, y).
+        filtered.append((float(prop.centroid[1]), float(prop.centroid[0])))
+    return filtered
+
+
+def _regularize_marker_grid(
+    centers: list[tuple[float, float]],
+    grid_shape: tuple[int, int],
+    image_shape: tuple[int, ...] | None = None,
+) -> list[list[float]]:
+    """Return a stable row-major marker grid, filling missing cells if needed.
+
+    The GelSight marker layout used in this project is a mostly rectified grid.
+    Connected-component detection can still miss dim edge markers or produce
+    tiny edge fragments. This function assigns detected centers to a known
+    rows x cols lattice, removes duplicate assignments, and fills empty cells
+    from the inferred row/column centers. The filled points are only used as
+    initial LK tracking points; later validation still rejects bad tracks.
+    """
+    rows, cols = grid_shape
+    expected = rows * cols
+    if rows <= 0 or cols <= 0 or not centers:
+        return [[float(x), float(y)] for x, y in centers]
+
+    pts = np.asarray(centers, dtype=np.float32)
+    # Do not hallucinate a grid when detection is badly broken.
+    if len(pts) < max(4, int(expected * 0.6)):
+        order = np.lexsort((pts[:, 0], pts[:, 1]))
+        return pts[order].astype(float).tolist()
+
+    row_centers = _kmeans_1d(pts[:, 1], rows)
+    row_labels = np.argmin(np.abs(pts[:, 1:2] - row_centers[None, :]), axis=1)
+
+    row_points: list[np.ndarray] = []
+    for row in range(rows):
+        row_pts = pts[row_labels == row]
+        row_points.append(_select_regular_row_points(row_pts, cols))
+
+    missing_edge_grid = _regularize_grid_with_missing_edge_column(
+        row_points, row_centers, rows, cols, image_shape=image_shape
+    )
+    if missing_edge_grid is not None:
+        return missing_edge_grid.reshape(expected, 2).astype(float).tolist()
+
+    complete_rows = [row_pts for row_pts in row_points if len(row_pts) == cols]
+    if complete_rows:
+        template = np.median(np.stack(complete_rows, axis=0), axis=0)
+        col_centers = template[:, 0]
+    else:
+        col_centers = _kmeans_1d(pts[:, 0], cols)
+
+    grid = np.zeros((rows, cols, 2), dtype=np.float32)
+    valid = np.zeros((rows, cols), dtype=bool)
+    for row, row_pts in enumerate(row_points):
+        if len(row_pts) == 0:
+            continue
+        if len(row_pts) == cols:
+            grid[row] = row_pts
+            valid[row] = True
+            continue
+
+        labels = np.argmin(np.abs(row_pts[:, 0:1] - col_centers[None, :]), axis=1)
+        for point, col in zip(row_pts, labels):
+            col = int(col)
+            if (not valid[row, col]) or abs(point[0] - col_centers[col]) < abs(
+                grid[row, col, 0] - col_centers[col]
+            ):
+                grid[row, col] = point
+                valid[row, col] = True
+
+    for row in range(rows):
+        if np.count_nonzero(valid[row]) >= 2:
+            cols_valid = np.flatnonzero(valid[row]).astype(np.float32)
+            x_valid = grid[row, valid[row], 0]
+            y_valid = grid[row, valid[row], 1]
+            x_fit = np.polyfit(cols_valid, x_valid, deg=1)
+            y_fill = float(np.median(y_valid))
+            for col in range(cols):
+                if not valid[row, col]:
+                    grid[row, col] = (float(np.polyval(x_fit, col)), y_fill)
+        else:
+            for col in range(cols):
+                if not valid[row, col]:
+                    grid[row, col] = (col_centers[col], row_centers[row])
+
+    return grid.reshape(expected, 2).astype(float).tolist()
+
+
+def _select_regular_row_points(row_pts: np.ndarray, cols: int) -> np.ndarray:
+    """Pick the most grid-like subset of points in one marker row.
+
+    Edge glare/crop artifacts often appear as an extra point near the image
+    border. For rows with more than the expected number of points, selecting
+    the contiguous subset with the most uniform spacing drops those outliers
+    while keeping the true marker row.
+    """
+    row_pts = np.asarray(row_pts, dtype=np.float32).reshape(-1, 2)
+    if len(row_pts) == 0:
+        return row_pts.reshape(0, 2)
+
+    row_pts = row_pts[np.argsort(row_pts[:, 0])]
+    if len(row_pts) <= cols:
+        return row_pts
+
+    row_y = float(np.median(row_pts[:, 1]))
+    row_y_scale = max(1.0, float(np.median(np.abs(row_pts[:, 1] - row_y))) * 1.4826)
+
+    def score_candidate(candidate: np.ndarray) -> float:
+        diffs = np.diff(candidate[:, 0])
+        if np.any(diffs <= 1.0):
+            return float("inf")
+        median_diff = float(np.median(diffs))
+        if median_diff <= 0:
+            return float("inf")
+        spacing_cv = float(np.std(diffs) / median_diff)
+        span = float(candidate[-1, 0] - candidate[0, 0])
+        y_spread = float(np.std(candidate[:, 1]))
+        y_outlier = float(np.max(np.abs(candidate[:, 1] - row_y)) / row_y_scale)
+        return spacing_cv + 0.01 * y_spread + 0.2 * y_outlier - 0.0001 * span
+
+    best_score = float("inf")
+    best = row_pts[:cols]
+    if len(row_pts) <= cols + 4:
+        candidates = (row_pts[list(indices)] for indices in itertools.combinations(range(len(row_pts)), cols))
+    else:
+        candidates = (row_pts[start : start + cols] for start in range(0, len(row_pts) - cols + 1))
+
+    for candidate in candidates:
+        candidate = candidate[np.argsort(candidate[:, 0])]
+        score = score_candidate(candidate)
+        if score < best_score:
+            best_score = score
+            best = candidate
+    return best
+
+
+def _regularize_grid_with_missing_edge_column(
+    row_points: list[np.ndarray],
+    row_centers: np.ndarray,
+    rows: int,
+    cols: int,
+    image_shape: tuple[int, ...] | None = None,
+) -> np.ndarray | None:
+    counts = np.array([len(row_pts) for row_pts in row_points], dtype=np.int32)
+    if np.count_nonzero(counts == cols - 1) < max(3, rows // 2):
+        return None
+
+    usable_rows = [row_pts for row_pts in row_points if len(row_pts) >= cols - 2]
+    if not usable_rows:
+        return None
+
+    diffs = []
+    first_x = []
+    last_x = []
+    for row_pts in usable_rows:
+        ordered = row_pts[np.argsort(row_pts[:, 0])]
+        if len(ordered) >= 2:
+            diffs.extend(np.diff(ordered[:, 0]).tolist())
+            first_x.append(float(ordered[0, 0]))
+            last_x.append(float(ordered[-1, 0]))
+    if not diffs:
+        return None
+
+    step = float(np.median(diffs))
+    if step <= 1.0:
+        return None
+
+    left_margin = float(np.median(first_x))
+    right_margin = 0.0
+    if image_shape is not None and len(image_shape) >= 2:
+        width = float(image_shape[1])
+        right_margin = width - float(np.median(last_x))
+
+    # If a full edge column is missing, the first/last detected column leaves a
+    # margin roughly larger than one marker spacing. Bias toward missing-left
+    # because downstream tactile crops usually leave extra dark background on
+    # the left, while right-edge artifacts are already handled by row subset
+    # selection.
+    missing_left = left_margin > step * 1.2
+    missing_right = (not missing_left) and (right_margin > step * 1.2)
+    if not missing_left and not missing_right:
+        return None
+
+    grid = np.zeros((rows, cols, 2), dtype=np.float32)
+    for row, row_pts in enumerate(row_points):
+        ordered = row_pts[np.argsort(row_pts[:, 0])]
+        if len(ordered) == 0:
+            x0 = left_margin - step if missing_left else left_margin
+            xs = x0 + step * np.arange(cols, dtype=np.float32)
+            grid[row, :, 0] = xs
+            grid[row, :, 1] = row_centers[row]
+            continue
+
+        if missing_left:
+            take = ordered[-(cols - 1) :] if len(ordered) >= cols - 1 else ordered
+            start_col = cols - len(take)
+            grid[row, start_col:, :] = take[-(cols - start_col) :]
+            for col in range(start_col - 1, -1, -1):
+                grid[row, col, 0] = grid[row, col + 1, 0] - step
+                grid[row, col, 1] = grid[row, col + 1, 1]
+        else:
+            take = ordered[: cols - 1] if len(ordered) >= cols - 1 else ordered
+            grid[row, : len(take), :] = take
+            for col in range(len(take), cols):
+                grid[row, col, 0] = grid[row, col - 1, 0] + step
+                grid[row, col, 1] = grid[row, col - 1, 1]
+
+    return grid
+
+
+def find_marker_centers(
+    marker_img: np.ndarray,
+    expected_grid: tuple[int, int] | None = (6, 9),
+    regularize_grid: bool = True,
+):
     props = find_marker_props(marker_img)
-    return [[prop.centroid[1], prop.centroid[0]] for prop in props]
+    centers = _filtered_marker_centers_from_props(props)
+    if not centers:
+        centers = [[prop.centroid[1], prop.centroid[0]] for prop in props]
+    if regularize_grid and expected_grid is not None:
+        return _regularize_marker_grid(centers, expected_grid, image_shape=marker_img.shape)
+    return [[float(x), float(y)] for x, y in centers]
 
 def plot_marker_center(img:np.ndarray, centers:np.ndarray):
     if img.ndim == 2:

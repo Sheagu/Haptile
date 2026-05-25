@@ -317,9 +317,16 @@ def _init_marker_tracking_state(
     return state
 
 
-def _mask_contains_points(mask: np.ndarray, points: np.ndarray) -> np.ndarray:
+def _mask_contains_points(mask: np.ndarray, points: np.ndarray, radius: int = 3) -> np.ndarray:
     if len(points) == 0:
         return np.zeros(0, dtype=bool)
+
+    if radius > 0:
+        kernel_size = radius * 2 + 1
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)
+        )
+        mask = cv2.dilate(mask, kernel, iterations=1)
 
     h, w = mask.shape[:2]
     rounded = np.rint(points).astype(np.int32)

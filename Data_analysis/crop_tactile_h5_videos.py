@@ -15,6 +15,16 @@ Typical workflow:
      shared/data/bc_data/put_bottle_upright \
      shared/data/bc_data/put_bottle_upright_tactile_crop \
      --config-dir sensor_configs/put_bottle_upright
+     
+按顺序点四个点：
+
+左上, 右上, 右下, 左下
+按键：
+
+u = 撤销上一个点
+r = 重选
+Enter 或 s = 保存
+q 或 Esc = 退出
 """
 
 from __future__ import annotations

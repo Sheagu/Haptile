@@ -1,13 +1,21 @@
-#!/bin/bash
+#!/bin/bash -l
+
+#SBATCH --job-name=convert_pi0_tactile
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+#SBATCH --output=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.out
+#SBATCH --error=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.err
 
 set -e
 
-PROJECT_ROOT=${PROJECT_ROOT:-/home/shiyigu/Documents/project/tele-gsy}
-OPENPI_ROOT=${OPENPI_ROOT:-/home/shiyigu/Documents/project/openpi}
-DATASET_NAME=fold_Tshirt
-OUTPUT_NAME=fold_Tshirt_lerobot_tactile_emb
-REPO_ID=local/pi0_ur5e_fold_Tshirt_tactile_emb
-DEFAULT_PROMPT="Fold the t-shirt in half"
+PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
+OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
+DATASET_NAME=put_bottle_upright_tactile_crop
+OUTPUT_NAME=put_bottle_upright_tactile_crop_lerobot_tactile_emb
+REPO_ID=local/pi0_ur5e_put_bottle_upright_tactile_crop
+DEFAULT_PROMPT="Grab the bottle, put it upright on the table and release it"
 TACTILE_EMBEDDING_DIM=16
 
 INPUT_ROOT=${PROJECT_ROOT}/shared/data/bc_data/${DATASET_NAME}
@@ -16,16 +24,23 @@ CONFIG_PATH=${PROJECT_ROOT}/learning/pi0_ur5e/configs/dataset_schema.yaml
 CONVERT_SCRIPT=${PROJECT_ROOT}/learning/pi0_ur5e/scripts/convert_to_lerobot.py
 
 cd "${OPENPI_ROOT}"
+source /users/k25070928/miniconda3/etc/profile.d/conda.sh
+conda activate tele
 
 echo "================================"
-echo "Local pi0 tactile-embedding conversion"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Running on node: $HOSTNAME"
 echo "Current directory: $(pwd)"
-echo "Python path: $(command -v python || true)"
-echo "UV path: $(command -v uv || true)"
+echo "Python path: $(which python)"
+echo "Conda env: $CONDA_DEFAULT_ENV"
+echo "UV path: $(which uv)"
 echo "Input root: ${INPUT_ROOT}"
 echo "Output root: ${OUTPUT_ROOT}"
 echo "Tactile embedding dim: ${TACTILE_EMBEDDING_DIM}"
 echo "================================"
+
+echo "Checking GPU with nvidia-smi:"
+nvidia-smi
 
 echo "Converting raw trajectories to LeRobot/OpenPI format with tactile embedding:"
 uv run python "${CONVERT_SCRIPT}" \

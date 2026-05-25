@@ -1,0 +1,27 @@
+{
+  "points": [
+    [
+      91,
+      65
+    ],
+    [
+      317,
+      45
+    ],
+    [
+      318,
+      183
+    ],
+    [
+      89,
+      162
+    ]
+  ],
+  "output_size": [
+    320,
+    240
+  ],
+  "point_order": "top_left, top_right, bottom_right, bottom_left",
+  "source_h5": "shared/data/bc_data/turn_cleanser_water_bottle/0519_170040/trajectory.h5",
+  "source_frame_index": 0
+}

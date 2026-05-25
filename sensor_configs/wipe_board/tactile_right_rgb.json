@@ -1,0 +1,27 @@
+{
+  "points": [
+    [
+      112,
+      64
+    ],
+    [
+      318,
+      37
+    ],
+    [
+      318,
+      189
+    ],
+    [
+      110,
+      165
+    ]
+  ],
+  "output_size": [
+    320,
+    240
+  ],
+  "point_order": "top_left, top_right, bottom_right, bottom_left",
+  "source_h5": "shared/data/bc_data/wipe_board/0428_155943/trajectory.h5",
+  "source_frame_index": 0
+}
