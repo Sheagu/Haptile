@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import pickle
 import shutil
@@ -64,6 +65,66 @@ def _resolve_tactile_warp_config(config_path: str, sensor_name: str):
         "Expected one of: "
         + ", ".join(candidates)
     )
+
+
+def _load_tactile_crop_configs(config_dir: str):
+    """Load task-specific post-warp tactile crop configs."""
+    if not config_dir:
+        return {}
+
+    config_dir = Path(config_dir).expanduser()
+    configs = {}
+    for sensor_name in ("tactile_left", "tactile_right"):
+        suffix = sensor_name.replace("tactile_", "")
+        candidates = [
+            config_dir / f"{sensor_name}_rgb.json",
+            config_dir / f"{sensor_name}.json",
+            config_dir / f"sensor_config_{suffix}.json",
+            config_dir / f"sensor_config_{sensor_name}.json",
+        ]
+        config_path = next((path for path in candidates if path.exists()), None)
+        if config_path is None:
+            raise FileNotFoundError(
+                f"No tactile crop config found for {sensor_name} in {config_dir}. "
+                f"Expected one of: {', '.join(str(path) for path in candidates)}"
+            )
+
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        entry = config.get(sensor_name) or config.get(sensor_name.replace("tactile_", "")) or config
+        points = np.array(entry["points"], dtype=np.float32)
+        if points.shape != (4, 2):
+            raise ValueError(f"{config_path} points must have shape (4, 2), got {points.shape}")
+        out_width, out_height = entry.get("output_size", entry.get("size", (320, 240)))
+        dst_pts = np.array(
+            [[0, 0], [out_width, 0], [out_width, out_height], [0, out_height]],
+            dtype=np.float32,
+        )
+        configs[sensor_name] = {
+            "path": config_path,
+            "matrix": cv2.getPerspectiveTransform(points, dst_pts),
+            "size": (int(out_width), int(out_height)),
+        }
+    return configs
+
+
+def _apply_tactile_crop_configs(
+    obs: Dict[str, np.ndarray],
+    crop_configs: dict,
+    input_size: tuple[int, int],
+) -> None:
+    if not crop_configs:
+        return
+
+    for sensor_name, config in crop_configs.items():
+        obs_key = f"{sensor_name}_rgb"
+        frame = obs.get(obs_key)
+        if not isinstance(frame, np.ndarray) or frame.ndim != 3:
+            continue
+        if frame.shape[1] != input_size[0] or frame.shape[0] != input_size[1]:
+            frame = cv2.resize(frame, input_size, interpolation=cv2.INTER_AREA)
+        obs[obs_key] = cv2.warpPerspective(frame, config["matrix"], config["size"])
+
 
 def _resolve_camera_id(camera_identifier):
     """Resolve camera identifier to either int device ID or v4l/by-path string.
@@ -447,6 +508,56 @@ def _is_right_b_pressed(agent) -> bool:
         return False
     _, button_data = oculus_reader.get_transformations_and_buttons()
     return bool(button_data.get("B", False))
+
+
+def _update_obs_marker_tracking(
+    obs: Dict[str, np.ndarray],
+    args: "Args",
+    marker_tracking_states: dict[str, MarkerTrackingState | None],
+    marker_tracking_params: dict,
+    lk_params: dict,
+    marker_motion: dict[str, float],
+) -> None:
+    if not (args.enable_marker_tracking and args.use_tactile):
+        return
+
+    for sensor_name in ("tactile_left", "tactile_right"):
+        obs_key = f"{sensor_name}_rgb"
+        tracking_key = f"{sensor_name}_marker_tracking"
+        state, overlay, motion = _update_marker_tracking(
+            sensor_name=sensor_name,
+            frame=obs.get(obs_key),
+            state=marker_tracking_states.get(sensor_name),
+            marker_tracking_params=marker_tracking_params,
+            lk_params=lk_params,
+            reset_on_loss=args.marker_tracking_reset_on_loss,
+            arrow_scale=args.marker_arrow_scale,
+            fb_max_error=args.marker_flow_fb_max_error,
+            motion_deadband=args.marker_motion_deadband,
+            motion_smoothing=args.marker_motion_smoothing,
+            motion_release_smoothing=args.marker_motion_release_smoothing,
+            min_valid_points=args.marker_motion_min_valid_points,
+            compensate_global_drift=args.marker_motion_compensate_global_drift,
+        )
+        marker_tracking_states[sensor_name] = state
+        marker_motion[sensor_name] = motion or 0.0
+        obs[f"{sensor_name}_marker_motion"] = np.array(
+            marker_motion[sensor_name], dtype=np.float32
+        )
+        if overlay is not None:
+            obs[tracking_key] = overlay
+            if args.use_marker_tracking_overlay_for_policy:
+                obs[obs_key] = overlay
+            if (
+                args.marker_tracking_show_view
+                and state is not None
+                and state.display_window is not None
+            ):
+                cv2.imshow(
+                    state.display_window,
+                    cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
+                )
+                cv2.waitKey(1)
 
 
 def _is_rocker_pressed(agent) -> bool:
@@ -884,7 +995,11 @@ class Args:
     tactile_height: int = 480  # Tactile camera resolution height
     save_tactile_width: int = 320  # Saved tactile image width
     save_tactile_height: int = 240  # Saved tactile image height
+    tactile_crop_config_dir: str = ""
+    tactile_crop_input_width: int = 320
+    tactile_crop_input_height: int = 240
     enable_marker_tracking: bool = True
+    use_marker_tracking_overlay_for_policy: bool = False
     marker_tracking_show_view: bool = True
     marker_tracking_reset_on_loss: bool = True
     marker_flow_win_size: tuple[int, int] = (15, 15)
@@ -964,6 +1079,27 @@ class Args:
 
 def main(args):
     marker_tracking_params = _build_marker_tracking_params(args)
+    if args.agent in ("pi0", "pi0_eef") and args.use_marker_tracking_overlay_for_policy:
+        if not args.pi0_include_tactile or args.pi0_tactile_feature_mode != "image_embedding":
+            print_color(
+                "[pi0] warning: --use-marker-tracking-overlay-for-policy is enabled, "
+                "but pi0 tactile embedding is not enabled. Add "
+                "--pi0-include-tactile --pi0-tactile-feature-mode image_embedding "
+                "for a tactile pi0 checkpoint.",
+                color="yellow",
+                attrs=("bold",),
+            )
+    tactile_crop_configs = _load_tactile_crop_configs(args.tactile_crop_config_dir)
+    tactile_crop_input_size = (
+        int(args.tactile_crop_input_width),
+        int(args.tactile_crop_input_height),
+    )
+    for sensor_name, config in tactile_crop_configs.items():
+        print(
+            f"Tactile post-crop config - {sensor_name}: {config['path']} "
+            f"input={tactile_crop_input_size[0]}x{tactile_crop_input_size[1]} "
+            f"output={config['size'][0]}x{config['size'][1]}"
+        )
     lk_params = {
         "winSize": tuple(args.marker_flow_win_size),
         "maxLevel": args.marker_flow_max_level,
@@ -1110,6 +1246,7 @@ def main(args):
         env.step(jnt)
 
     obs = env.get_obs()
+    _apply_tactile_crop_configs(obs, tactile_crop_configs, tactile_crop_input_size)
     marker_tracking_states: dict[str, MarkerTrackingState | None] = {}
     marker_motion = {"tactile_left": 0.0, "tactile_right": 0.0}
     if args.enable_marker_tracking and args.use_tactile:
@@ -1152,16 +1289,28 @@ def main(args):
     else:
         print("Headset haptics disabled")
 
+    _update_obs_marker_tracking(
+        obs,
+        args,
+        marker_tracking_states,
+        marker_tracking_params,
+        lk_params,
+        marker_motion,
+    )
+    policy_obs = (
+        obs if args.use_marker_tracking_overlay_for_policy else _policy_obs_with_raw_tactile(obs)
+    )
     if args.jit_compile and args.agent.startswith(("dp", "act")):
         agent.compile_inference(
-            obs, num_diffusion_iters=args.num_diffusion_iters_compile
+            policy_obs, num_diffusion_iters=args.num_diffusion_iters_compile
         )
         _reset_agent_temporal_state(agent)
     # going to start position
     print("Going to start position")
-    start_pos = agent.act(_policy_obs_with_raw_tactile(obs))  # in mujoco
+    start_pos = agent.act(policy_obs)  # in mujoco
     _reset_agent_temporal_state(agent)
     obs = env.get_obs()
+    _apply_tactile_crop_configs(obs, tactile_crop_configs, tactile_crop_input_size)
     joints = obs["joint_positions"]
 
     ur_idx = [i for i in range(min(6, len(joints)))]
@@ -1271,16 +1420,6 @@ def main(args):
                         end="",
                         flush=True,
                     )
-                    if args.safe:
-                        action = safety_wrapper.act_safe(
-                            agent,
-                            _policy_obs_with_raw_tactile(obs),
-                            eef=(args.agent.endswith("_eef")),
-                        )
-                    else:
-                        action = agent.act(_policy_obs_with_raw_tactile(obs))
-                    dt = datetime.datetime.now()
-
                     b_pressed = _is_right_b_pressed(agent)
                     if (
                         args.enable_marker_tracking
@@ -1304,42 +1443,29 @@ def main(args):
                         )
                     prev_b_pressed = b_pressed
 
-                    if args.enable_marker_tracking and args.use_tactile:
-                        for sensor_name in ("tactile_left", "tactile_right"):
-                            obs_key = f"{sensor_name}_rgb"
-                            tracking_key = f"{sensor_name}_marker_tracking"
-                            state, overlay, motion = _update_marker_tracking(
-                                sensor_name=sensor_name,
-                                frame=obs.get(obs_key),
-                                state=marker_tracking_states.get(sensor_name),
-                                marker_tracking_params=marker_tracking_params,
-                                lk_params=lk_params,
-                                reset_on_loss=args.marker_tracking_reset_on_loss,
-                                arrow_scale=args.marker_arrow_scale,
-                                fb_max_error=args.marker_flow_fb_max_error,
-                                motion_deadband=args.marker_motion_deadband,
-                                motion_smoothing=args.marker_motion_smoothing,
-                                motion_release_smoothing=args.marker_motion_release_smoothing,
-                                min_valid_points=args.marker_motion_min_valid_points,
-                                compensate_global_drift=args.marker_motion_compensate_global_drift,
-                            )
-                            marker_tracking_states[sensor_name] = state
-                            marker_motion[sensor_name] = motion or 0.0
-                            obs[f"{sensor_name}_marker_motion"] = np.array(
-                                marker_motion[sensor_name], dtype=np.float32
-                            )
-                            if overlay is not None:
-                                obs[tracking_key] = overlay
-                                if (
-                                    args.marker_tracking_show_view
-                                    and state is not None
-                                    and state.display_window is not None
-                                ):
-                                    cv2.imshow(
-                                        state.display_window,
-                                        cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR),
-                                    )
-                                    cv2.waitKey(1)
+                    _update_obs_marker_tracking(
+                        obs,
+                        args,
+                        marker_tracking_states,
+                        marker_tracking_params,
+                        lk_params,
+                        marker_motion,
+                    )
+
+                    policy_obs = (
+                        obs
+                        if args.use_marker_tracking_overlay_for_policy
+                        else _policy_obs_with_raw_tactile(obs)
+                    )
+                    if args.safe:
+                        action = safety_wrapper.act_safe(
+                            agent,
+                            policy_obs,
+                            eef=(args.agent.endswith("_eef")),
+                        )
+                    else:
+                        action = agent.act(policy_obs)
+                    dt = datetime.datetime.now()
 
                     if haptics_sender is not None:
                         sum_motion = max(
@@ -1430,6 +1556,9 @@ def main(args):
                         obs = env.step_eef(action)
                     else:
                         obs = env.step(action)
+                    _apply_tactile_crop_configs(
+                        obs, tactile_crop_configs, tactile_crop_input_size
+                    )
 
                     ff = 1 / (time.time() - new_start_time)
                     frame_freq.append(ff)

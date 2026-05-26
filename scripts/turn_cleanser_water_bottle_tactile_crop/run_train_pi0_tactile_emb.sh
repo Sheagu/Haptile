@@ -14,10 +14,10 @@ set -e
 
 PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
 OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
-DATASET_NAME=peg_in_hole_tactile_crop
-LEROBOT_REPO_ID=local/pi0_ur5e_peg_in_hole_tactile_crop
-EXP_NAME=peg_in_hole_tactile_crop_pi0_base_tactile_emb_lora
-DEFAULT_PROMPT="Pick up the peg and insert it into the matching hole"
+DATASET_NAME=turn_cleanser_water_bottle_tactile_crop
+LEROBOT_REPO_ID=local/pi0_ur5e_turn_cleanser_water_bottle_tactile_crop
+EXP_NAME=turn_cleanser_water_bottle_tactile_crop_pi0_base_tactile_emb_lora
+DEFAULT_PROMPT="Pick up the cleanser bottle, tilt it over either the yellow bowl or the blue bowl as if pouring, then place it back in its original position"
 DRY_RUN=false
 WANDB=true
 KEEP_PERIOD=10000

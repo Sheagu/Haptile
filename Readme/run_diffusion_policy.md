@@ -1,16 +1,5 @@
 #TODO
-- [ ] running:
-34153030, sbatch -p gpu put_bottle_upright_tactile_crop/run_train_pi0_tactile_emb.sh
-34153109, sbatch -p gpu peg_in_hole_tactile_crop/run_train_dp_tactile.sh
-34157944, sbatch -p gpu peg_in_hole_tactile_crop/run_train_pi0_tactile_emb.sh
-34161650, sbatch -p gpu turn_cleanser_water_bottle_tactile_crop/run_train_dp_tactile.sh
-
-- [ ] waiting:
-34161601, sbatch -p gpu turn_cleanser_water_bottle_tactile_crop/run_convert_pi0_lerobot_tactile_emb.sh
-34161743, sbatch -p gpu wipe_board_tactile_crop/run_convert_pi0_lerobot_tactile_emb.sh
-34161856, sbatch -p gpu wipe_board_tactile_crop/run_train_dp_tactile.sh
-
-让另外两个marker tracking的训练跑起来，然后把带marker tracking的测试代码写一下，最后把改的代码同步到amir电脑
+把带marker tracking的测试代码已经写好了，跑的时候加参数，把改的代码同步到amir电脑
 
 # 裁剪触觉图像
 - 鼠标选点，生成角点坐标：python Data_analysis/crop_tactile_h5_videos.py select-config shared/data/bc_data/wipe_board --config-dir sensor_configs/wipe_board --output-size 320x240
@@ -256,6 +245,27 @@ python run_env.py \
   --save-data \
   --data-dir ./shared/data/bc_data/dp_rollouts \
 
+如果 DP 是用 marker tracking overlay 版触觉视频训练的，例如
+`shared/data/bc_data/put_bottle_upright_tactile_crop` 中的
+`/videos/tactile_left_rgb` 和 `/videos/tactile_right_rgb` 已经被替换成带箭头版本，
+测试时需要让实时 marker tracking 结果作为 policy 输入：
+
+python run_env.py \
+  --agent dp \
+  --dp-ckpt-path <your_marker_tracking_dp_ckpt> \
+  --hz 15 \
+  --safe \
+  --use-tactile \
+  --enable-marker-tracking \
+  --tactile-crop-config-dir sensor_configs/put_bottle_upright \
+  --use-marker-tracking-overlay-for-policy
+
+`--tactile-crop-config-dir` 会把实时触觉图像先按该任务的裁剪配置处理，
+再生成 marker tracking 箭头图；因此弹出的
+`tactile_left_marker_tracking` / `tactile_right_marker_tracking` 窗口显示的也是裁剪后的版本。
+这些裁剪配置默认假设输入图像尺寸为 320x240；如果你的实时触觉中间图尺寸不同，
+可以用 `--tactile-crop-input-width` 和 `--tactile-crop-input-height` 调整。
+
 程序启动后会先把机器人移动到 reset joints，然后提示：
 - 按一下并松开键盘 r：移动到初始位置并开始执行 policy
 - 双击 r：停止并保存当前 trajectory
@@ -364,3 +374,24 @@ python learning/pi0_ur5e/scripts/serve_policy.py \
   --default-prompt "Fold the t-shirt in half" \
   --port 8000
 
+### 真机测试 tactile embedding pi0
+如果 pi0 是用 marker tracking overlay 版触觉图像训练的，`run_env.py`
+这边也要实时生成同样的裁剪后带箭头触觉图，再送进 pi0 的 tactile embedding：
+
+python run_env.py \
+  --agent pi0 \
+  --pi0-policy-host 127.0.0.1 \
+  --pi0-policy-port 8000 \
+  --pi0-prompt "put the bottle upright" \
+  --pi0-include-tactile \
+  --pi0-tactile-feature-mode image_embedding \
+  --use-tactile \
+  --enable-marker-tracking \
+  --tactile-crop-config-dir sensor_configs/put_bottle_upright \
+  --use-marker-tracking-overlay-for-policy \
+  --hz 15 \
+  --safe
+
+这时 pi0 的 `tactile_left_rgb` / `tactile_right_rgb` 输入，以及
+`tactile_left_marker_tracking` / `tactile_right_marker_tracking` 显示窗口，
+都会使用任务裁剪后的 marker tracking overlay。
