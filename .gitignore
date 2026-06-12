@@ -15,3 +15,8 @@ venv/
 outputs/
 script_results/
 wandb/
+Readme/diffusion_policy_architecture.md
+Readme/pi0_ur5e_pi0_tactile_architecture.md
+wandb/
+.idea/
+.vscode/

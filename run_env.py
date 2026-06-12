@@ -19,7 +19,7 @@ import tyro
 # foot pedal
 from pynput import keyboard
 
-from agents.agent import BimanualAgent, SafetyWrapper
+from agents.agent import SafetyWrapper
 from camera_node import ZMQClientCamera
 from cameras.opencv_camera import OpenCVCamera
 from cameras.realsense_camera import RealSenseCamera
@@ -49,11 +49,11 @@ def _resolve_tactile_warp_config(config_path: str, sensor_name: str):
     """Resolve tactile warp config path with simple project-local defaults."""
     sensor_suffix = sensor_name.replace("tactile_", "")
     candidates = [
-        f"robo_test/sensor_config_{sensor_suffix}.json",
-        f"robo_test/{sensor_name}_sensor_config.json",
-        f"robo_test/{sensor_suffix}_sensor_config.json",
-        f"robo_test/sensor_config_{sensor_name}.json",
-        "robo_test/sensor_config.json",
+        f"sensor_crop/sensor_config_{sensor_suffix}.json",
+        f"sensor_crop/{sensor_name}_sensor_config.json",
+        f"sensor_crop/{sensor_suffix}_sensor_config.json",
+        f"sensor_crop/sensor_config_{sensor_name}.json",
+        "sensor_crop/sensor_config.json",
     ]
 
     for candidate in candidates:
@@ -1049,7 +1049,6 @@ class Args:
     inference_agent_host = "127.0.0.2"  # ip of the inference server (localhost if running locally; currently defaults to bt) inference server needs to use the same checkpoint folder when launching the inference node (args need to match)
 
     dp_ckpt_path: str = "./shared/ckpts/best.ckpt"
-    act_ckpt_path: str = ""
     pi0_policy_host: str = ""
     pi0_policy_port: int = 8000
     pi0_prompt: str = "pick up the paper cup and place it on the target"
@@ -1189,13 +1188,6 @@ def main(args):
             from agents.dp_agent import BimanualDPAgent
 
             agent = BimanualDPAgent(ckpt_path=args.dp_ckpt_path)
-    elif args.agent in ["act", "act_eef"]:
-        if args.use_jit_agent:
-            raise ValueError("ACT deployment currently supports local inference only; set --no-use-jit-agent.")
-        from agents.act_agent import BimanualACTAgent
-
-        ckpt_path = args.act_ckpt_path or args.dp_ckpt_path
-        agent = BimanualACTAgent(ckpt_path=ckpt_path)
     elif args.agent in ["pi0", "pi0_eef"]:
         from agents.pi0_agent import Pi0Agent
 
@@ -1300,7 +1292,7 @@ def main(args):
     policy_obs = (
         obs if args.use_marker_tracking_overlay_for_policy else _policy_obs_with_raw_tactile(obs)
     )
-    if args.jit_compile and args.agent.startswith(("dp", "act")):
+    if args.jit_compile and args.agent.startswith("dp"):
         agent.compile_inference(
             policy_obs, num_diffusion_iters=args.num_diffusion_iters_compile
         )

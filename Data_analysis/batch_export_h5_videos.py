@@ -21,7 +21,7 @@
     python Data_analysis/batch_export_h5_videos.py shared/data/bc_data/grab_05 --overwrite
 
     # 只汇总导出 combined_2x2 视频；输出为同一层的 <原文件夹时间戳>.mp4
-    python Data_analysis/batch_export_h5_videos.py shared/data/bc_data/grab_05 --flat-combined-only
+    python Data_analysis/batch_export_h5_videos.py --flat-combined-only shared/data/bc_data/grab_05 
 
 输出:
     # 默认模式
