@@ -1,6 +1,3 @@
-#TODO
-把带marker tracking的测试代码已经写好了，跑的时候加参数，把改的代码同步到amir电脑
-
 # 裁剪触觉图像
 - 鼠标选点，生成角点坐标：python Data_analysis/crop_tactile_h5_videos.py select-config shared/data/bc_data/wipe_board --config-dir sensor_configs/wipe_board --output-size 320x240
 - 预览裁剪效果：python Data_analysis/crop_tactile_h5_videos.py preview shared/data/bc_data/wipe_board --config-dir sensor_configs/wipe_board
