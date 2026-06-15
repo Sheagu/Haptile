@@ -2,8 +2,8 @@
 
 set -e
 
-PROJECT_ROOT=${PROJECT_ROOT:-/home/shiyigu/Documents/project/tele-gsy}
-OPENPI_ROOT=${OPENPI_ROOT:-/home/shiyigu/Documents/project/openpi}
+PROJECT_ROOT=${PROJECT_ROOT:-/path/to/project}
+OPENPI_ROOT=${OPENPI_ROOT:-/path/to/openpi}
 DATASET_NAME=fold_Tshirt
 LEROBOT_REPO_ID=local/pi0_ur5e_fold_Tshirt_tactile_emb
 EXP_NAME=fold_Tshirt_pi0_base_tactile_emb_lora

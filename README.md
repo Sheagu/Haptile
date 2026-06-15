@@ -32,7 +32,7 @@ The current system supports:
    embeddings.
 3. **Unified real-robot deployment.** The same environment entry point deploys
    joint-space DP and pi0 policies while retaining camera preprocessing,
-   tactile processing, trajectory recording, and configurable safety limits.
+   tactile processing, and trajectory recording.
 
 ## System Overview
 
@@ -252,8 +252,7 @@ python run_env.py \
   --pi0-include-tactile \
   --pi0-tactile-feature-mode image_embedding \
   --pi0-tactile-embedding-dim 16 \
-  --use-tactile \
-  --safe
+  --use-tactile
 ```
 
 The action format, state dimension, camera ordering, prompt, tactile mode, and
@@ -293,19 +292,6 @@ script_results/
 
 Do not commit private robot logs, raw participant data, model checkpoints, API
 tokens, machine-specific IP addresses, or identifying experiment metadata.
-
-## Safety
-
-This repository controls physical hardware. Before each run:
-
-1. Confirm that the robot is in remote mode and the emergency stop is reachable.
-2. Clear the workspace and verify the configured reset pose.
-3. Start with conservative control frequency and safety limits.
-4. Test perception and policy-server connectivity without enabling motion.
-5. Keep an operator ready to stop the robot throughout every rollout.
-
-The `--safe` option limits per-step command changes, but it is not a substitute
-for physical safeguards, workspace limits, or human supervision.
 
 ## Paper and Citation
 

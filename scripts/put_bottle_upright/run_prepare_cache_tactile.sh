@@ -1,19 +1,13 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=prepare_cache
-#SBATCH --constraint="a100_40g|h200|a100_80g|l40s"
-#SBATCH --exclude=erc-hpc-comp031,erc-hpc-comp035
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=24G
-#SBATCH --time=00:20:00
-#SBATCH --output=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.out
-#SBATCH --error=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.err
+#SBATCH --output=script_results/%x_%j.out
+#SBATCH --error=script_results/%x_%j.err
 
 set -e
 
-cd /scratch/grp/luo/shiyi/project/tele-gsy
-source /users/k25070928/miniconda3/etc/profile.d/conda.sh
+cd /path/to/project
+source /path/to/miniconda3/etc/profile.d/conda.sh
 conda activate tele
 
 echo "================================"
@@ -29,11 +23,11 @@ nvidia-smi
 
 echo "Preparing cache data:"
 python learning/dp/pipeline.py \
-  --data_path /scratch/grp/luo/shiyi/project/tele-gsy/data_split/put_bottle_upright \
-  --model_save_path /scratch/grp/luo/shiyi/project/tele-gsy/data/put_bottle_upright/ckpts/cache_prepare_dummy \
+  --data_path /path/to/project/data_split/put_bottle_upright \
+  --model_save_path /path/to/project/data/put_bottle_upright/ckpts/cache_prepare_dummy \
   --use_train_test_split True \
   --representation_type img-tactile_img-pos \
-  --memmap_loader_path /scratch/grp/luo/shiyi/project/tele-gsy/data_split/put_bottle_upright_train/01-False-mem-img-tactile.dat \
+  --memmap_loader_path /path/to/project/data_split/put_bottle_upright_train/01-False-mem-img-tactile.dat \
   --camera_indices 01 \
   --joint_state_dim 7 \
   --action_dim 7 \

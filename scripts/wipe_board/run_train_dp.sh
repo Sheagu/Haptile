@@ -1,18 +1,12 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=train_dp
-#SBATCH --gres=gpu:1
-#SBATCH --constraint="a100_40g|h200|a100_80g|l40s"
-#SBATCH --exclude=erc-hpc-comp031,erc-hpc-comp035
-#SBATCH --cpus-per-task=24
-#SBATCH --mem=32G
-#SBATCH --time=10:00:00
-#SBATCH --output=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.out
-#SBATCH --error=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.err
+#SBATCH --output=script_results/%x_%j.out
+#SBATCH --error=script_results/%x_%j.err
 
 set -e
 
-PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
+PROJECT_ROOT=/path/to/project
 DATASET_NAME=wipe_board
 REPRESENTATION_TYPE=img-pos
 WANDB_EXP_NAME=wipe_board_dp_img_pos
@@ -21,7 +15,7 @@ DATA_PATH=${PROJECT_ROOT}/data_split/${DATASET_NAME}
 MODEL_SAVE_PATH=${PROJECT_ROOT}/data/${DATASET_NAME}/ckpts/dp_img_pos
 
 cd "${PROJECT_ROOT}"
-source /users/k25070928/miniconda3/etc/profile.d/conda.sh
+source /path/to/miniconda3/etc/profile.d/conda.sh
 conda activate tele
 
 echo "================================"
@@ -58,8 +52,8 @@ python learning/dp/pipeline.py \
   --num_diffusion_iters 100 \
   --load_img False \
   --use_wandb True \
-  --wandb_entity_name shiyi_gu_seu \
-  --wandb_project_name tele-gsy \
+  --wandb_entity_name your_wandb_entity \
+  --wandb_project_name project \
   --wandb_exp_name "${WANDB_EXP_NAME}"
 
 echo "Job finished."

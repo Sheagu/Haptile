@@ -17,25 +17,25 @@ Tactile images are not passed to pi0 as extra image slots. When tactile is enabl
 
 ## Paths
 
-The commands below use this example layout:
+Set the following variables for your local installation:
 
-```text
-/home/rpl/yongqiang/tele-gsy   # this repository
-/home/rpl/yongqiang/openpi     # OpenPI checkout
-/path/to/raw_dataset           # raw recorded trajectories
-turn_cleanser_bottle           # example task name
+```bash
+export REPO_ROOT=/path/to/tele-gsy-policy-learning
+export OPENPI_ROOT=/path/to/openpi
+export RAW_DATASET_ROOT=/path/to/raw_dataset
+export TASK_NAME=turn_cleanser_bottle
 ```
 
 Run conversion from the OpenPI environment so LeRobot is available:
 
 ```bash
-cd /home/rpl/yongqiang/openpi
+cd "$OPENPI_ROOT"
 ```
 
 Run training and deployment helper scripts from this repository:
 
 ```bash
-cd /home/rpl/yongqiang/tele-gsy
+cd "$REPO_ROOT"
 ```
 
 ## Raw Data Requirements
@@ -72,13 +72,13 @@ Use this path for the no-tactile baseline. The resulting `observation.state` is 
 Convert:
 
 ```bash
-cd /home/rpl/yongqiang/openpi
-uv run python /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/scripts/convert_to_lerobot.py \
-  --input-root /path/to/raw_dataset \
-  --output-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
-  --config /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/configs/dataset_schema.yaml \
-  --task-name turn_cleanser_bottle \
-  --repo-id local/pi0_ur5e_turn_cleanser_bottle_no_tactile \
+cd "$OPENPI_ROOT"
+uv run python "$REPO_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
+  --input-root "$RAW_DATASET_ROOT" \
+  --output-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_no_tactile" \
+  --config "$REPO_ROOT/learning/pi0_ur5e/configs/dataset_schema.yaml" \
+  --task-name "$TASK_NAME" \
+  --repo-id "local/pi0_ur5e_${TASK_NAME}_no_tactile" \
   --default-prompt "turn the cleanser bottle" \
   --action-mode joint_position_gripper \
   --include-tactile false \
@@ -90,8 +90,11 @@ Check the converted state dimension:
 ```bash
 python - <<'CHECK'
 import json
+import os
 from pathlib import Path
-root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile")
+root = Path(os.environ["REPO_ROOT"]) / "outputs" / (
+    os.environ["TASK_NAME"] + "_lerobot_no_tactile"
+)
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
@@ -122,13 +125,13 @@ robot_state(7) + tactile_embedding(128) = observation.state(135)
 Convert:
 
 ```bash
-cd /home/rpl/yongqiang/openpi
-uv run python /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/scripts/convert_to_lerobot.py \
-  --input-root /path/to/raw_dataset \
-  --output-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
-  --config /home/rpl/yongqiang/tele-gsy/learning/pi0_ur5e/configs/dataset_schema.yaml \
-  --task-name turn_cleanser_bottle \
-  --repo-id local/pi0_ur5e_turn_cleanser_bottle_tactile_emb \
+cd "$OPENPI_ROOT"
+uv run python "$REPO_ROOT/learning/pi0_ur5e/scripts/convert_to_lerobot.py" \
+  --input-root "$RAW_DATASET_ROOT" \
+  --output-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_tactile_emb" \
+  --config "$REPO_ROOT/learning/pi0_ur5e/configs/dataset_schema.yaml" \
+  --task-name "$TASK_NAME" \
+  --repo-id "local/pi0_ur5e_${TASK_NAME}_tactile_emb" \
   --default-prompt "turn the cleanser bottle" \
   --action-mode joint_position_gripper \
   --include-tactile true \
@@ -142,8 +145,11 @@ Check the converted state and tactile dimensions:
 ```bash
 python - <<'CHECK'
 import json
+import os
 from pathlib import Path
-root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb")
+root = Path(os.environ["REPO_ROOT"]) / "outputs" / (
+    os.environ["TASK_NAME"] + "_lerobot_tactile_emb"
+)
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])
@@ -183,13 +189,13 @@ The `--use-delta-actions true` flag tells the OpenPI data transform to train on 
 ### Train Without Tactile
 
 ```bash
-cd /home/rpl/yongqiang/tele-gsy
+cd "$REPO_ROOT"
 bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
-  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
-  --output-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_no_tactile_lora \
-  --openpi-root /home/rpl/yongqiang/openpi \
-  --repo-id local/pi0_ur5e_turn_cleanser_bottle_no_tactile \
-  --exp-name turn_cleanser_bottle_pi0_base_no_tactile_lora \
+  --dataset-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_no_tactile" \
+  --output-dir "$REPO_ROOT/outputs/pi0_${TASK_NAME}_no_tactile_lora" \
+  --openpi-root "$OPENPI_ROOT" \
+  --repo-id "local/pi0_ur5e_${TASK_NAME}_no_tactile" \
+  --exp-name "${TASK_NAME}_pi0_base_no_tactile_lora" \
   --steps 30000 \
   --batch-size 16 \
   --model-family pi0 \
@@ -204,13 +210,13 @@ bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
 ### Train With Tactile Embedding
 
 ```bash
-cd /home/rpl/yongqiang/tele-gsy
+cd "$REPO_ROOT"
 bash learning/pi0_ur5e/scripts/train_pi0_base.sh \
-  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
-  --output-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_tactile_emb_lora \
-  --openpi-root /home/rpl/yongqiang/openpi \
-  --repo-id local/pi0_ur5e_turn_cleanser_bottle_tactile_emb \
-  --exp-name turn_cleanser_bottle_pi0_base_tactile_emb_lora \
+  --dataset-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_tactile_emb" \
+  --output-dir "$REPO_ROOT/outputs/pi0_${TASK_NAME}_tactile_emb_lora" \
+  --openpi-root "$OPENPI_ROOT" \
+  --repo-id "local/pi0_ur5e_${TASK_NAME}_tactile_emb" \
+  --exp-name "${TASK_NAME}_pi0_base_tactile_emb_lora" \
   --steps 30000 \
   --batch-size 16 \
   --model-family pi0 \
@@ -244,13 +250,13 @@ Run the policy server on the GPU machine. Use the same dataset variant that was 
 ### Serve No-Tactile Checkpoint
 
 ```bash
-cd /home/rpl/yongqiang/tele-gsy
+cd "$REPO_ROOT"
 XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
-  --openpi-root /home/rpl/yongqiang/openpi \
+  --openpi-root "$OPENPI_ROOT" \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_no_tactile_lora/checkpoints/pi0_ur5e_cup/turn_cleanser_bottle_pi0_base_no_tactile_lora/<step> \
-  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_no_tactile \
+  --checkpoint-dir "$REPO_ROOT/outputs/pi0_${TASK_NAME}_no_tactile_lora/checkpoints/pi0_ur5e_cup/${TASK_NAME}_pi0_base_no_tactile_lora/<step>" \
+  --dataset-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_no_tactile" \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
@@ -261,13 +267,13 @@ python learning/pi0_ur5e/scripts/serve_policy.py \
 ### Serve Tactile-Embedding Checkpoint
 
 ```bash
-cd /home/rpl/yongqiang/tele-gsy
+cd "$REPO_ROOT"
 XLA_PYTHON_CLIENT_PREALLOCATE=false XLA_PYTHON_CLIENT_MEM_FRACTION=0.85 \
 python learning/pi0_ur5e/scripts/serve_policy.py \
-  --openpi-root /home/rpl/yongqiang/openpi \
+  --openpi-root "$OPENPI_ROOT" \
   --config-name pi0_ur5e_cup \
-  --checkpoint-dir /home/rpl/yongqiang/tele-gsy/outputs/pi0_turn_cleanser_bottle_tactile_emb_lora/checkpoints/pi0_ur5e_cup/turn_cleanser_bottle_pi0_base_tactile_emb_lora/<step> \
-  --dataset-root /home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb \
+  --checkpoint-dir "$REPO_ROOT/outputs/pi0_${TASK_NAME}_tactile_emb_lora/checkpoints/pi0_ur5e_cup/${TASK_NAME}_pi0_base_tactile_emb_lora/<step>" \
+  --dataset-root "$REPO_ROOT/outputs/${TASK_NAME}_lerobot_tactile_emb" \
   --model-family pi0 \
   --use-delta-actions true \
   --camera-padding-strategy zeros \
@@ -335,8 +341,11 @@ Check the dataset state dimension:
 ```bash
 python - <<'CHECK'
 import json
+import os
 from pathlib import Path
-root = Path("/home/rpl/yongqiang/tele-gsy/outputs/turn_cleanser_bottle_lerobot_tactile_emb")
+root = Path(os.environ["REPO_ROOT"]) / "outputs" / (
+    os.environ["TASK_NAME"] + "_lerobot_tactile_emb"
+)
 info = json.loads((root / "meta" / "info.json").read_text())
 print("state shape:", info["features"]["observation.state"]["shape"])
 print("action shape:", info["features"]["action"]["shape"])

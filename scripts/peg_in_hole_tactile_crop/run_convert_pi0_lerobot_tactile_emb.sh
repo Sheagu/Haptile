@@ -1,17 +1,13 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=convert_pi0_tactile
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --mem=32G
-#SBATCH --time=02:00:00
-#SBATCH --output=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.out
-#SBATCH --error=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.err
+#SBATCH --output=script_results/%x_%j.out
+#SBATCH --error=script_results/%x_%j.err
 
 set -e
 
-PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
-OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
+PROJECT_ROOT=/path/to/project
+OPENPI_ROOT=/path/to/openpi
 DATASET_NAME=peg_in_hole_tactile_crop
 OUTPUT_NAME=peg_in_hole_tactile_crop_lerobot_tactile_emb
 REPO_ID=local/pi0_ur5e_peg_in_hole_tactile_crop
@@ -24,7 +20,7 @@ CONFIG_PATH=${PROJECT_ROOT}/learning/pi0_ur5e/configs/dataset_schema.yaml
 CONVERT_SCRIPT=${PROJECT_ROOT}/learning/pi0_ur5e/scripts/convert_to_lerobot.py
 
 cd "${OPENPI_ROOT}"
-source /users/k25070928/miniconda3/etc/profile.d/conda.sh
+source /path/to/miniconda3/etc/profile.d/conda.sh
 conda activate tele
 
 echo "================================"

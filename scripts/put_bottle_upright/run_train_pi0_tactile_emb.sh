@@ -1,19 +1,13 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=train_pi0_tactile
-#SBATCH --gres=gpu:1
-#SBATCH --constraint="a100_40g|h200|a100_80g|l40s"
-#SBATCH --exclude=erc-hpc-comp031,erc-hpc-comp035
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --time=24:00:00
-#SBATCH --output=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.out
-#SBATCH --error=/scratch/grp/luo/shiyi/project/tele-gsy/script_results/%x_%j.err
+#SBATCH --output=script_results/%x_%j.out
+#SBATCH --error=script_results/%x_%j.err
 
 set -e
 
-PROJECT_ROOT=/scratch/grp/luo/shiyi/project/tele-gsy
-OPENPI_ROOT=/scratch/grp/luo/shiyi/project/openpi
+PROJECT_ROOT=/path/to/project
+OPENPI_ROOT=/path/to/openpi
 DATASET_NAME=put_bottle_upright
 LEROBOT_REPO_ID=local/pi0_ur5e_put_bottle_upright_tactile_emb
 EXP_NAME=put_bottle_upright_pi0_base_tactile_emb_lora
@@ -26,7 +20,7 @@ DATASET_ROOT=${PROJECT_ROOT}/outputs/${DATASET_NAME}_lerobot_tactile_emb
 OUTPUT_DIR=${PROJECT_ROOT}/outputs/pi0_${DATASET_NAME}_tactile_emb_lora
 
 cd "${PROJECT_ROOT}"
-source /users/k25070928/miniconda3/etc/profile.d/conda.sh
+source /path/to/miniconda3/etc/profile.d/conda.sh
 conda activate tele
 
 echo "================================"
