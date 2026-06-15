@@ -146,9 +146,7 @@ python run_env.py \
 
 Detailed instructions:
 
-- [UR5e and Meta Quest teleoperation](Readme/ur5_teleoperation.md)
-- [Quick data-collection reference](Readme/QUICK_START.md)
-- [Tactile camera setup](Readme/TACTILE_CAMERA_SETUP.md)
+- [UR5e and Meta Quest teleoperation](Readme/UR5e_teleoperation.md)
 
 ## 2. Train Policies
 
@@ -198,8 +196,7 @@ left and right tactile RGB images to `observation.state`.
 
 Detailed training instructions:
 
-- [DP and pi0 experiment workflow](Readme/run_diffusion_policy.md)
-- [Complete pi0 conversion, training, and deployment guide](learning/pi0_ur5e/README.md)
+- [DP and pi0 experiment workflow](Readme/Training_and_deploying.md)
 
 ## 3. Deploy Trained Policies
 
@@ -258,6 +255,10 @@ python run_env.py \
 The action format, state dimension, camera ordering, prompt, tactile mode, and
 normalization statistics used for deployment must match training.
 
+Detailed deployment instructions:
+
+- [DP and pi0 experiment workflow](Readme/Training_and_deploying.md)
+
 ## Repository Structure
 
 ```text
@@ -307,10 +308,16 @@ be added after the anonymity period.
 
 ## Acknowledgements
 
-This project builds on ideas and software from prior robot-learning and
-teleoperation systems, including Diffusion Policy, OpenPI, LeRobot, HATO,
-MuJoCo, Universal Robots RTDE, and Intel RealSense. Please consult the
-corresponding upstream projects and licenses when redistributing derived code
+This codebase is built upon and adapted from
+[teleUR](https://github.com/Zhuochenn/teleUR), which itself builds upon the
+[HATO](https://github.com/ToruOwO/hato) project. We thank the authors of teleUR
+and HATO for releasing their code and providing the foundations for this work.
+
+This project also builds on software and ideas from
+[OpenPI](https://github.com/Physical-Intelligence/openpi),
+[LeRobot](https://github.com/huggingface/lerobot), MuJoCo, Universal Robots
+RTDE, and Intel RealSense. Please consult the corresponding upstream projects,
+licenses, and citation requirements when using or redistributing derived code
 or assets.
 
 ## License
