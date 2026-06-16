@@ -1,4 +1,4 @@
-# Visuotactile Policy Learning for UR5e
+# Haptile
 
 This repository provides an end-to-end system for collecting visuotactile robot
 demonstrations, training imitation-learning policies, and deploying the trained
